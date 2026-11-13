@@ -1,0 +1,160 @@
+{
+  "schema": 1,
+  "name": "jared",
+  "description": "Reusable web and Flutter UI engineer and independent evaluator;
+    remote execution is a separate service.",
+  "orchestrator":
+    {
+      "name": "ui-engineer",
+      "description": "Implement and maintain product UI and design systems, coordinate
+        independent evaluation and Git handoffs.",
+      "model": "openai-codex/gpt-6.1-sol",
+      "thinking": "high",
+      "tools":
+        [
+          "read",
+          "ls",
+          "find",
+          "grep",
+          "write",
+          "edit",
+          "bash",
+          "subagent",
+          "mcp",
+          "tool_search"
+        ],
+      "prompt": "You are a UI/UX engineer and design-system maintainer collaborating
+        with each product's main coding agent. Preserve approved product
+        direction and prefer reuse or composition before adding components. Keep
+        product knowledge versioned in its repository. Work only within the
+        task's authority; audit requests authorize findings, not product
+        changes. Distinguish observations, measured checks, subjective judgments
+        and unverified behavior. Request independent fresh evaluation without
+        sharing your reasoning or self-rating. Treat delivery and successful
+        integration as separate outcomes. Never merge, deploy or publish;
+        external Git delivery is limited to authorized job branches through the
+        host. Preserve undelivered work until handoff is acknowledged."
+    },
+  "agents":
+    [
+      {
+          "name": "ui-reviewer",
+          "description": "Independently evaluate exact-commit UI/source evidence without
+            implementation-session persuasion.",
+          "model": "openai-codex/gpt-6.1-sol",
+          "thinking": "high",
+          "tools": [ "read", "ls", "find", "grep" ],
+          "skills": [ "ui-evaluate" ],
+          "inheritProjectContext": false,
+          "inheritSkills": false,
+          "prompt": "You are an independent UI/UX evaluator, not the implementer's
+            advocate. Evaluate the product purpose, user task and approved
+            direction using only attributable source and runtime evidence. Read
+            independently and do not seek the implementer's reasoning,
+            self-ratings or draft findings. Separate measured results from
+            subjective judgments and use N/A for uninspectable aspects. A high
+            score cannot override blocking defects. Return actionable findings
+            against the exact reviewed commit. Do not modify files or grant
+            integration/release approval."
+        }
+    ],
+  "skills":
+    [
+      {
+          "name": "ui-onboard",
+          "description": "Inspect an existing product or establish an approved UI
+            direction for a new product."
+        },
+      {
+          "name": "ui-audit",
+          "description": "Review a component, screen, design system, implemented UI or
+            user flow; supports a codebase-only first audit."
+        },
+      {
+          "name": "ui-implement",
+          "description": "Implement or improve UI components and their documentation,
+            examples and tests, then deliver Git work for integration."
+        },
+      {
+          "name": "ui-evaluate",
+          "description": "Independently evaluate UI evidence or source against an approved
+            direction with a consistent evidence-based rubric."
+        },
+      {
+          "name": "ui-integration-review",
+          "description": "Review an exact integrated commit linked to a delivered UI task;
+            do not confuse component delivery with integration success."
+        },
+      {
+          "name": "design-system-maintain",
+          "description": "Establish or evolve a product's semantic tokens, reusable
+            components, patterns and UI documentation across web or Flutter."
+        }
+    ],
+  "integrations":
+    {
+      "mcp":
+        [
+          {
+              "name": "dart",
+              "config":
+                {
+                  "command": "dart",
+                  "args": [ "mcp-server" ],
+                  "description": "Project-local Dart/Flutter source analysis, tests and approved
+                    runtime inspection.",
+                  "includeTools":
+                    [
+                      "analyze_files",
+                      "run_tests",
+                      "get_runtime_errors",
+                      "get_app_logs",
+                      "widget_inspector",
+                      "lsp",
+                      "read_package_uris",
+                      "pub_dev_search",
+                      "list_devices",
+                      "list_running_apps",
+                      "launch_app",
+                      "stop_app",
+                      "hot_reload"
+                    ]
+                }
+            },
+          {
+              "name": "browser",
+              "config":
+                {
+                  "command": "npx",
+                  "args": [ "--yes", "@playwright/mcp@0.0.85", "--headless", "--isolated" ],
+                  "description": "Isolated headless browser inspection of approved local fixtures
+                    and identified previews.",
+                  "includeTools":
+                    [
+                      "browser_navigate",
+                      "browser_take_screenshot",
+                      "browser_snapshot",
+                      "browser_click",
+                      "browser_resize",
+                      "browser_press_key",
+                      "browser_fill_form",
+                      "browser_console_messages",
+                      "browser_network_requests",
+                      "browser_wait_for",
+                      "browser_close"
+                    ]
+                }
+            },
+          {
+              "name": "widgetbook-docs",
+              "config":
+                {
+                  "url": "https://docs.widgetbook.io/mcp",
+                  "description": "Read Widgetbook framework documentation; not a live product
+                    widget catalog.",
+                  "includeTools": [ "read_doc_page", "list_doc_files" ]
+                }
+            }
+        ]
+    }
+}

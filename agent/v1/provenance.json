@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "source": "approved native Jared .pi assets (unchanged export)",
+  "files": {
+    ".pi/system.yaml": "1d1e46b1e3bfb547a99d6d634fbd7812f523dfd7cfb4c923138bfdde0efd8249",
+    ".pi/settings.json": "76d24c852d0589e1b5668097d8d0e173e51561ce03c8e729f609004c5900da50",
+    ".pi/APPEND_SYSTEM.md": "cfcc6f6006bb9b74ee865ad09284519c30ebef15845aecd096835799f04c307e",
+    ".pi/agents/ui-reviewer.md": "04024d327d1da8722517458f38f30789a0d3e2f696658a9ab8ab054e0b8dddef",
+    ".pi/skills/ui-onboard/SKILL.md": "dfbaa6340e4e4000b664b592136f25026b09a580bb2380ae0942b882e3abf15d",
+    ".pi/skills/ui-audit/SKILL.md": "60e116efebb2af83815421af817a42b0fda3567d7ff4b28bad9dfa22920bac3b",
+    ".pi/skills/ui-implement/SKILL.md": "4d1e4fe2dd5a1be8c8f2883b4a723720272548abde23ae07678d91a21c147212",
+    ".pi/skills/ui-evaluate/SKILL.md": "c7dcd01355a457f15069a46274c221d9dd94090aad980651cdffb98022bf059a",
+    ".pi/skills/ui-integration-review/SKILL.md": "9e62f6ff8eb9b64b50c7092ccec347eee03f7c071b95b82617ac6706c936d55a",
+    ".pi/skills/design-system-maintain/SKILL.md": "a5d86aeb1bbcfca7b3f823105fa0ce06ce3ca27a980b542af10e5f58150a00a3"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "name": "@jared-local/cli",
+  "version": "0.2.2",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "node scripts/assets.mjs && node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
+    "smoke": "tsx --test test/local-mcp.test.ts",
+    "prepare": "npm run build",
+    "format": "prettier --write src test scripts README.md docs package.json tsconfig.json",
+    "pretest": "npm run build",
+    "presmoke": "npm run build"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/node": "22.19.1",
+    "prettier": "3.6.2",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  },
+  "description": "WIP local-only Jared source-audit stdio MCP for Linux and macOS",
+  "bin": {
+    "jared": "dist/src/main.js"
+  },
+  "files": [
+    "dist/src/**",
+    "agent/v1/**",
+    "README.md",
+    "docs/**",
+    "npm-shrinkwrap.json"
+  ]
+}
