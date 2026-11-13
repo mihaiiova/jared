@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
-  cpSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -13,8 +12,9 @@ import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-// Real Git-dependency installation, not a tarball or symlink install. Uses only
-// the existing npm cache; no login, network, user-prefix install or setup.
+// Real installation from committed Git content, never the rebuilt working tree.
+// Local mode uses the existing npm cache only. Explicit remote validation allows
+// downloads; neither mode logs in, touches the user prefix or runs setup.
 const source = fileURLToPath(new URL("../", import.meta.url));
 const root = realpathSync(mkdtempSync(join(tmpdir(), "jared-git-install-")));
 const repo = join(root, "source");
@@ -50,38 +50,22 @@ function run(command, args, cwd = root, timeout = 300_000) {
   }
   return result.stdout.trim();
 }
-for (const file of [
-  "package.json",
-  "npm-shrinkwrap.json",
-  "tsconfig.json",
-  "README.md",
-  "src",
-  "test",
-  "scripts",
-  "agent",
-  "docs",
-  "dist/src",
-]) {
-  cpSync(join(source, file), join(repo, file), { recursive: true });
-}
-run("git", ["init", "-q"], repo);
-run("git", ["add", "."], repo);
+const commit = run("git", ["rev-parse", "HEAD"], source);
+run("git", [
+  "-c",
+  "core.hooksPath=/dev/null",
+  "clone",
+  "--no-local",
+  "--no-hardlinks",
+  "--",
+  source,
+  repo,
+]);
 run(
   "git",
-  [
-    "-c",
-    "user.name=Fixture",
-    "-c",
-    "user.email=fixture@example.invalid",
-    "-c",
-    "core.hooksPath=/dev/null",
-    "commit",
-    "-qm",
-    "Git-install regression fixture",
-  ],
+  ["-c", "core.hooksPath=/dev/null", "checkout", "--detach", commit],
   repo,
 );
-const commit = run("git", ["rev-parse", "HEAD"], repo);
 console.log(`Git-install evidence: ${root}`);
 const target =
   process.argv[2] ||
@@ -96,7 +80,7 @@ if (process.argv[2]) {
 run("npm", [
   "install",
   "--global",
-  "--offline",
+  process.argv[2] ? "--prefer-offline" : "--offline",
   "--no-audit",
   "--no-fund",
   target,

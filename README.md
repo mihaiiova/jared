@@ -28,9 +28,9 @@ jared setup
 jared doctor
 ```
 
-For a repeatable install, replace `#fix/git-install` with `#FULL_COMMIT_SHA`. This branch includes the generated JavaScript CLI, so installation does not need TypeScript or a Git preparation build. A real isolated global install from a local Git fixture passes on Linux/npm 10.9.8, including MCP runtime imports. Native Mac execution remains unverified.
+For a repeatable install, replace `#fix/git-install` with `#FULL_COMMIT_SHA`. This branch includes the generated JavaScript CLI, so installation does not need TypeScript or a Git preparation build. Real isolated global installs from local Git content and the pushed GitHub fix branch pass on Linux/npm 10.9.8, including MCP runtime imports. Native Mac execution remains unverified.
 
-Maintainers: `npm run build:local` regenerates `dist/src/`; commit those runtime files with their TypeScript changes. CI rebuilds and checks for drift, then exercises a real Git-based global install. Do not add npm lifecycle hooks or a script named `build` without rerunning that test: npm 10's Git preparation can inherit global installation settings and fail to install build dependencies in its temporary checkout.
+Maintainers: `npm run build:local` regenerates `dist/src/`; commit those runtime files with their TypeScript changes. CI rebuilds and checks for drift (including untracked modules), then exercises a real Git-based global install from committed content. Do not add npm lifecycle hooks or a script named `build` without rerunning that test: npm 10's Git preparation can inherit global installation settings and fail to install build dependencies in its temporary checkout.
 
 ## Install from a source checkout
 
