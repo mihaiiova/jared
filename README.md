@@ -61,6 +61,20 @@ Coding agents launch **`jared mcp`** over stdio automatically after registration
 
 `setup_project` is a write action: it registers the explicit canonical Git root and creates `.jared/config.json`, `.jared/.gitignore` and ignored `.jared/runs/`. Reports go to **that project's** `.jared/runs/<jobId>/`. Existing conflicts/symlinks are refused. Unpushed commits work; dirty originals are excluded and preserved. Every task/lookup names its project. Local clients have same-user operator authority, **not multi-tenant isolation**.
 
+## Develop Jared
+
+There is one repository and one development workspace, `jared/`:
+
+```sh
+git clone https://github.com/mihaiiova/jared.git
+cd jared
+pi
+```
+
+Run your normal coding agent at the repository root. Its contributor instructions are in `AGENTS.md`; the root does not load Jared's runtime persona. The installed audit-agent definitions live under `agent/v1/.pi/` and are bundled product assets, not maintainer instructions. No separate original agent-design workspace or `jared-service/` directory is needed. Build, test and maintain the CLI here, as with Toad and Faur. Existing Pi sessions keep their loaded instructions, so start a fresh session after changing workspaces.
+
+See [contributor guidance](AGENTS.md) for checks and generated-runtime requirements.
+
 ## Check status
 
 ```sh
