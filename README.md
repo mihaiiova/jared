@@ -20,15 +20,17 @@ Ownership uses SQLite's crash-released OS locks, not `flock`. macOS uses system 
 
 ## Install from Git
 
-**WIP — Git installation is not yet verified working.** The intended command for this repository, once the dependency-preparation failure below is resolved, is:
+The Git-install fix is on the `fix/git-install` branch. Until that branch is integrated into `main`, use its explicit ref:
 
 ```sh
-npm install --global 'git+https://github.com/mihaiiova/jared.git'
+npm install --global 'git+https://github.com/mihaiiova/jared.git#fix/git-install'
 jared setup
 jared doctor
 ```
 
-For a repeatable install, append `#FULL_COMMIT_SHA` to the Git URL. The repository root must be this package directory, containing `package.json`. npm runs the `prepare` build when installing from Git, so compiled output need not be committed. Do not use `--ignore-scripts` for Git installation: the CLI needs that build. The Git build requires dev dependencies; the resulting installed package contains only the declared runtime/package files. A Linux/npm 10.9.8 isolated Git-based global install currently fails during dependency preparation with a missing local TypeScript compiler; this path is **not verified working**. Use the source-checkout/tarball route below for now.
+For a repeatable install, replace `#fix/git-install` with `#FULL_COMMIT_SHA`. This branch includes the generated JavaScript CLI, so installation does not need TypeScript or a Git preparation build. A real isolated global install from a local Git fixture passes on Linux/npm 10.9.8, including MCP runtime imports. Native Mac execution remains unverified.
+
+Maintainers: `npm run build:local` regenerates `dist/src/`; commit those runtime files with their TypeScript changes. CI rebuilds and checks for drift, then exercises a real Git-based global install. Do not add npm lifecycle hooks or a script named `build` without rerunning that test: npm 10's Git preparation can inherit global installation settings and fail to install build dependencies in its temporary checkout.
 
 ## Install from a source checkout
 
@@ -36,6 +38,7 @@ No npm publication or standalone Pi installation is required. Use Node **>=22.19
 
 ```sh
 npm ci --ignore-scripts
+npm run build:local
 npm pack
 npm install --global ./jared-local-cli-0.2.2.tgz
 ```

@@ -32,5 +32,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test
+      - name: Generated runtime matches source
+        run: git diff --exit-code -- dist/src
+      - run: npm run test:git-install
       - run: npm pack --dry-run
       - run: git diff --check
