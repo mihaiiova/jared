@@ -8,14 +8,14 @@
   },
   "scripts": {
     "dev": "tsx src/main.ts",
-    "build": "node scripts/assets.mjs && node scripts/build.mjs",
+    "build:local": "node scripts/assets.mjs && node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test --test-concurrency=1 test/*.test.ts",
     "smoke": "tsx --test test/local-mcp.test.ts",
-    "prepare": "npm run build",
+    "test:git-install": "node scripts/test-git-install.mjs",
     "format": "prettier --write src test scripts README.md docs package.json tsconfig.json",
-    "pretest": "npm run build",
-    "presmoke": "npm run build"
+    "pretest": "npm run build:local",
+    "presmoke": "npm run build:local"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.5.2",

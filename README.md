@@ -20,7 +20,7 @@ Ownership uses SQLite's crash-released OS locks, not `flock`. macOS uses system 
 
 ## Install from Git
 
-**WIP — Git installation is not yet verified working.** The intended command for this repository, once the dependency-preparation failure below is resolved, is:
+Install the current default-branch version directly from GitHub:
 
 ```sh
 npm install --global 'git+https://github.com/mihaiiova/jared.git'
@@ -28,7 +28,9 @@ jared setup
 jared doctor
 ```
 
-For a repeatable install, append `#FULL_COMMIT_SHA` to the Git URL. The repository root must be this package directory, containing `package.json`. npm runs the `prepare` build when installing from Git, so compiled output need not be committed. Do not use `--ignore-scripts` for Git installation: the CLI needs that build. The Git build requires dev dependencies; the resulting installed package contains only the declared runtime/package files. A Linux/npm 10.9.8 isolated Git-based global install currently fails during dependency preparation with a missing local TypeScript compiler; this path is **not verified working**. Use the source-checkout/tarball route below for now.
+For a repeatable install, append `#FULL_COMMIT_SHA` to the Git URL. The repository includes the generated JavaScript CLI, so installation does not need TypeScript or a Git preparation build. Real isolated global installs from local Git content and the pushed GitHub fix branch pass on Linux/npm 10.9.8, including MCP runtime imports. Native Mac execution remains unverified.
+
+Maintainers: `npm run build:local` regenerates `dist/src/`; commit those runtime files with their TypeScript changes. CI rebuilds and checks for drift (including untracked modules), then exercises a real Git-based global install from committed content. Do not add npm lifecycle hooks or a script named `build` without rerunning that test: npm 10's Git preparation can inherit global installation settings and fail to install build dependencies in its temporary checkout.
 
 ## Install from a source checkout
 
@@ -36,6 +38,7 @@ No npm publication or standalone Pi installation is required. Use Node **>=22.19
 
 ```sh
 npm ci --ignore-scripts
+npm run build:local
 npm pack
 npm install --global ./jared-local-cli-0.2.2.tgz
 ```
@@ -57,6 +60,20 @@ Coding agents launch **`jared mcp`** over stdio automatically after registration
 > Read Jared's `get_jared_guide`. Set it up in this explicitly identified local Git root, then audit this full local commit. Don't modify product source.
 
 `setup_project` is a write action: it registers the explicit canonical Git root and creates `.jared/config.json`, `.jared/.gitignore` and ignored `.jared/runs/`. Reports go to **that project's** `.jared/runs/<jobId>/`. Existing conflicts/symlinks are refused. Unpushed commits work; dirty originals are excluded and preserved. Every task/lookup names its project. Local clients have same-user operator authority, **not multi-tenant isolation**.
+
+## Develop Jared
+
+There is one repository and one development workspace, `jared/`:
+
+```sh
+git clone https://github.com/mihaiiova/jared.git
+cd jared
+pi
+```
+
+Run your normal coding agent at the repository root. Its contributor instructions are in `AGENTS.md`; the root does not load Jared's runtime persona. The installed audit-agent definitions live under `agent/v1/.pi/` and are bundled product assets, not maintainer instructions. No separate original agent-design workspace or `jared-service/` directory is needed. Build, test and maintain the CLI here, as with Toad and Faur. Existing Pi sessions keep their loaded instructions, so start a fresh session after changing workspaces.
+
+See [contributor guidance](AGENTS.md) for checks and generated-runtime requirements.
 
 ## Check status
 

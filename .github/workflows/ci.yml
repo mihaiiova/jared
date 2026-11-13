@@ -32,5 +32,11 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test
+      - name: Generated runtime matches source
+        shell: bash
+        run: |
+          git status --short --untracked-files=all -- dist/src
+          test -z "$(git status --porcelain --untracked-files=all -- dist/src)"
+      - run: npm run test:git-install
       - run: npm pack --dry-run
       - run: git diff --check
