@@ -35,7 +35,7 @@ After committing the candidate:
 npm run test:git-install
 ```
 
-This tests real global installation from committed Git content with an isolated HOME/prefix and cached npm dependencies. It runs setup without login/registration, then the installed SDK's actual find/grep tools with downloads disabled, plus CLI help and MCP runtime imports. It does not use rebuilt/uncommitted files to mask missing package artifacts.
+This passed for the committed 0.3.0 candidate on Linux x64: installation, noninteractive setup without login/registration, no helper cache/download, real installed Pi find/grep and MCP imports. It tests real global installation from committed Git content with an isolated HOME/prefix and cached npm dependencies. It runs setup without login/registration, then the installed SDK's actual find/grep tools with downloads disabled, plus CLI help and MCP runtime imports. It does not use rebuilt/uncommitted files to mask missing package artifacts.
 
 Explicit remote-ref validation is also available:
 
@@ -43,7 +43,7 @@ Explicit remote-ref validation is also available:
 npm run test:git-install -- 'git+https://github.com/mihaiiova/jared.git#REF'
 ```
 
-Remote mode allows public GitHub/dependency downloads; local mode uses npm offline. Neither mode logs in, runs inference or changes the user's installed prefix. CI checks generated/vendored drift, including untracked files, and exercises the supported OS/CPU targets without installing host search helpers.
+Remote mode allows public GitHub/dependency downloads; local mode uses npm offline. Neither mode logs in, runs inference or changes the user's installed prefix. CI checks generated/vendored drift, including untracked files, and is configured to exercise the supported OS/CPU targets without installing host search helpers. Current public-runner labels are Ubuntu x64/ARM64 and macOS 15 ARM64/Intel; the retired `macos-14` label was replaced. Runner mapping was checked against GitHub's current hosted-runner reference; workflow configuration is not a passing CI result.
 
 ## Evidence limitations
 
