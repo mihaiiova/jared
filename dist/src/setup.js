@@ -6,15 +6,14 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { homedir } from "node:os";
-import { bootstrap, executionConfig, loadLocalConfig, localPaths, saveAuthSource, } from "./local-config.js";
+import { bootstrap, executionConfig, loadLocalConfig, localPaths, socketPath, saveAuthSource, } from "./local-config.js";
 import { bundledAgent } from "./config.js";
 import { outsideCheckouts, outsideRoots } from "./operator-paths.js";
 import { inspectCodexAuth, oauthPath, safeAuthPath, createCodexRuntime, } from "./codex-auth.js";
 import { noSymlinks, ownerLock, pathExists } from "./safety.js";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { requireThat } from "./contracts.js";
-import { socketPath } from "./worker.js";
-import { prepareSearchTools, searchToolPath } from "./search-tools.js";
+import { verifySearchTools } from "./search-tools.js";
 export function verifyAssets() {
     const root = bundledAgent();
     const manifest = JSON.parse(readFileSync(join(root, "provenance.json"), "utf8"));
@@ -62,6 +61,7 @@ export async function bundledLogin(path, interaction, create = ModelRuntime.crea
 export async function setup(options, hooks = {}) {
     supportedPlatform();
     verifyAssets();
+    verifySearchTools(); // Installed product assets, never PATH/Pi-cache discovery or downloads.
     requireThat(!(options.usePiAuth && options.dedicated), "conflicting_auth_choices");
     let c = bootstrap(options.api);
     console.log(`Jared local setup: ${c.pi.provider}/${c.pi.model}\nPrivate configuration and state prepared; readiness checked below. Existing choices/auth are preserved.`);
@@ -81,18 +81,7 @@ export async function setup(options, hooks = {}) {
                 rl.close();
             }
         });
-    let toolsReady = false;
-    try {
-        toolsReady = await prepareSearchTools(c.stateDir, ask);
-    }
-    catch {
-        console.log("File-search preparation failed. Rerun jared setup; check private state permissions and, if downloads were approved, connectivity.");
-    }
-    console.log(toolsReady
-        ? "File-search helpers ready: native find and grep verified; shared private cache reused across jobs/roles."
-        : "Audits BLOCKED: file-search helpers unavailable. Rerun jared setup and approve bundled Pi helper provisioning, or provide executable fd/fdfind and rg on setup PATH / Pi bin cache. No sudo/apt required.");
-    if (!toolsReady)
-        process.exitCode = 1;
+    console.log("Packaged file tools ready. Setup configures authentication and client registration only; no tool downloads.");
     let authReady = false;
     try {
         executionConfig(c);
@@ -227,6 +216,9 @@ export async function setup(options, hooks = {}) {
         else
             console.log("No client settings changed. Existing registrations are never replaced automatically.");
     }
+    console.log(authReady
+        ? "Setup complete: runtime ready; authentication present (provider not live verified). Restart your coding client after upgrading Jared."
+        : "Setup incomplete: runtime ready, but audits remain blocked by missing selected authentication.");
     console.log("Ask your coding agent: Read get_jared_guide, then set up Jared in this explicitly identified Git root and audit an exact local commit.");
 }
 export function doctor() {
@@ -265,8 +257,8 @@ export function doctor() {
             }), "missing_tool");
         }, `${tool} installed`, `Install system ${tool} (no auto download)`);
     check(() => {
-        searchToolPath(loadLocalConfig().stateDir);
-    }, "Managed fd and rg pass file-safety checks (same paths used by workers; rerun setup for native execution check)", "Run jared setup to prepare file-search helpers; doctor never downloads");
+        verifySearchTools();
+    }, "Packaged fd and rg pass checksums, file-safety and native execution checks", "Reinstall Jared: packaged fd/rg are missing, modified or cannot execute; setup never downloads tools");
     check(() => {
         socketPath(loadLocalConfig());
     }, "Private local config/state ready", "Run jared setup --no-login --no-register; check private paths/permissions");

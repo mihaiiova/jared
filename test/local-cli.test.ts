@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { pathToFileURL } from "node:url";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
+  cpSync,
   readFileSync,
   readdirSync,
   statSync,
@@ -17,6 +17,8 @@ import { join, resolve } from "node:path";
 import { isolated, project, client, call } from "./local-fixtures.js";
 import { waitFor } from "./helpers.js";
 import { ownerLock } from "../src/safety.js";
+import { runtimeTarget } from "../src/search-tools.js";
+import { nativeSearchProbe } from "./native-search.js";
 const main = resolve("dist/src/main.js");
 
 test("offline setup is private/idempotent, missing-auth doctor is actionable and read-only; explicit API-key alternative keeps choices", () => {
@@ -109,38 +111,42 @@ test("offline setup is private/idempotent, missing-auth doctor is actionable and
   );
 });
 
-test(
-  "noninteractive setup never downloads missing fd or reports helpers ready",
-  { skip: existsSync("/usr/bin/fd") || existsSync("/usr/bin/fdfind") },
-  () => {
-    const f = isolated();
-    unlinkSync(join(f.env.PI_CODING_AGENT_DIR, "bin/fd"));
-    const result = spawnSync(
-      process.execPath,
-      [main, "setup", "--no-login", "--no-register"],
-      {
-        cwd: "/",
-        env: { ...f.env, PATH: "/usr/bin:/bin" },
-        encoding: "utf8",
-        timeout: 15_000,
-      },
-    );
-    assert.equal(result.status, 1, result.stderr);
-    assert.match(
-      result.stdout,
-      /Audits BLOCKED: file-search helpers unavailable/,
-    );
-    assert(!result.stdout.includes("File-search helpers ready"));
-    assert(
-      !existsSync(
-        join(f.env.XDG_STATE_HOME, "jared-local/search-tools/bin/fd"),
-      ),
-    );
-  },
-);
-
-test("production submit_job reports actionable setup guidance for missing or unsafe managed search helpers", async () => {
+test("fresh noninteractive setup needs no host search tools/cache and offers no helper-download prompt", () => {
   const f = isolated();
+  const result = spawnSync(
+    process.execPath,
+    [main, "setup", "--no-login", "--no-register"],
+    {
+      cwd: "/",
+      env: { ...f.env, PATH: "" },
+      encoding: "utf8",
+      timeout: 15_000,
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Packaged file tools ready/);
+  assert.match(result.stdout, /Setup incomplete: runtime ready/);
+  assert(!result.stdout.includes("Allow bundled Pi to download"));
+  assert(
+    !result.stderr.includes("ExperimentalWarning"),
+    "No service/SQLite import should interrupt setup prompts",
+  );
+  assert(!existsSync(join(f.env.PI_CODING_AGENT_DIR, "bin")));
+  assert(!existsSync(join(f.env.XDG_STATE_HOME, "jared-local/search-tools")));
+});
+
+test("damaged installation fails closed with reinstall guidance, never a helper-setup loop", async () => {
+  const f = isolated();
+  const packageRoot = join(f.root, "installation");
+  mkdirSync(packageRoot);
+  for (const file of ["dist/src", "agent", "vendor", "package.json"])
+    cpSync(resolve(file), join(packageRoot, file), { recursive: true });
+  symlinkSync(
+    resolve("node_modules"),
+    join(packageRoot, "node_modules"),
+    "dir",
+  );
+  const installedMain = join(packageRoot, "dist/src/main.js");
   const credentials = join(f.root, "credentials");
   mkdirSync(credentials, { mode: 0o700 });
   const key = join(credentials, "key");
@@ -148,7 +154,7 @@ test("production submit_job reports actionable setup guidance for missing or uns
   const setup = spawnSync(
     process.execPath,
     [
-      main,
+      installedMain,
       "setup",
       "--no-login",
       "--no-register",
@@ -162,9 +168,9 @@ test("production submit_job reports actionable setup guidance for missing or uns
     { cwd: "/", env: f.env, encoding: "utf8" },
   );
   assert.equal(setup.status, 0, setup.stderr);
-  const bin = join(f.env.XDG_STATE_HOME, "jared-local/search-tools/bin");
-  for (const tool of ["fd", "rg"]) unlinkSync(join(bin, tool));
-  const c = await client(main, f.env, "/");
+  const bin = join(packageRoot, "vendor/tools", runtimeTarget());
+  unlinkSync(join(bin, "fd"));
+  const c = await client(installedMain, f.env, "/");
   try {
     const p = project(f.root, "missing-tools-product");
     assert.equal(
@@ -194,7 +200,7 @@ test("production submit_job reports actionable setup guidance for missing or uns
       assert.equal(blocked.error, true);
       assert.equal(
         blocked.data.error,
-        "file_search_helpers_missing_run_jared_setup",
+        "packaged_search_tools_unavailable_reinstall_jared",
       );
     }
     assert.deepEqual(readdirSync(join(p.path, ".jared/runs")), []);
@@ -282,20 +288,17 @@ test("packed standalone install outside checkout: bin/help/setup/doctor, two sim
   });
   assert.equal(doctor.status, 1);
   assert.match(doctor.stdout, /10 bundled native assets match provenance/);
-  assert.match(doctor.stdout, /Managed fd and rg pass file-safety checks/);
+  assert.match(doctor.stdout, /Packaged fd and rg pass checksums/);
   assert(!doctor.stdout.includes("Install fd"));
-  // Exercise installed public native find+grep with the SAME managed PATH as workers.
-  const search = await import(
-    pathToFileURL(
-      join(prefix, "node_modules/@jared-local/cli/dist/src/search-tools.js"),
-    ).href
-  );
+  // Exercise installed Pi's actual tools with packaged binaries and no host cache.
   const nativeFixture = join(f.root, "installed-native-probe");
   mkdirSync(nativeFixture, { mode: 0o700 });
-  const state = join(f.env.XDG_STATE_HOME, "jared-local");
-  const managedPath = search.searchToolPath(state);
-  assert.equal(managedPath, `${state}/search-tools/bin:/usr/bin:/bin`);
-  search.runSearchPreparation(nativeFixture, managedPath.split(":")[0], false);
+  nativeSearchProbe(
+    nativeFixture,
+    join(prefix, "node_modules/@jared-local/cli"),
+  );
+  assert(!existsSync(join(f.env.XDG_STATE_HOME, "jared-local/search-tools")));
+  assert(!existsSync(join(f.env.PI_CODING_AGENT_DIR, "bin")));
   const [a, b] = await Promise.all([
     client(installed, f.env, "/"),
     client(installed, f.env, f.root),

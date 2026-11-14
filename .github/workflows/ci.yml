@@ -10,33 +10,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, macos-15-intel]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22.23.0"
-      - name: Native test prerequisites
-        shell: bash
-        run: |
-          if [[ "$RUNNER_OS" == macOS ]]; then
-            brew list fd >/dev/null 2>&1 || brew install fd
-            brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
-            # A short canonical temp root also respects Unix socket path limits.
-            echo 'TMPDIR=/private/tmp' >> "$GITHUB_ENV"
-          else
-            sudo apt-get update
-            sudo apt-get install -y fd-find ripgrep
-          fi
+      - name: Short canonical macOS test paths
+        if: runner.os == 'macOS'
+        run: echo 'TMPDIR=/private/tmp' >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test
       - name: Generated runtime matches source
         shell: bash
         run: |
-          git status --short --untracked-files=all -- dist/src
-          test -z "$(git status --porcelain --untracked-files=all -- dist/src)"
+          git status --short --untracked-files=all -- dist/src vendor/tools
+          test -z "$(git status --porcelain --untracked-files=all -- dist/src vendor/tools)"
       - run: npm run test:git-install
       - run: npm pack --dry-run
       - run: git diff --check
