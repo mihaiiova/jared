@@ -1,10 +1,9 @@
-import { isolated } from "./local-fixtures.js";
+import { searchToolPath } from "../src/search-tools.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
   mkdtempSync,
   mkdirSync,
-  copyFileSync,
   writeFileSync,
   readFileSync,
   existsSync,
@@ -118,7 +117,7 @@ function offlineExecutor(
         authKind === "codex" ? join(authDir, "auth.json") : undefined,
       );
       assert.equal(env.PI_OFFLINE, undefined);
-      assert.equal(env.PATH, `${stateDir}/search-tools/bin:/usr/bin:/bin`);
+      assert.equal(env.PATH, searchToolPath());
       assert.equal(env.GIT_SSH, undefined);
       assert.equal(env.GIT_SSH_COMMAND, undefined);
       assert.equal(env.JARED_GIT_IDENTITY, undefined);
@@ -137,17 +136,6 @@ function offlineExecutor(
       );
     }
   }
-  const tools = isolated();
-  const stateDir = join(tools.root, "managed-state");
-  mkdirSync(join(stateDir, "search-tools/bin"), {
-    recursive: true,
-    mode: 0o700,
-  });
-  for (const tool of ["fd", "rg"])
-    copyFileSync(
-      join(tools.env.PI_CODING_AGENT_DIR, "bin", tool),
-      join(stateDir, "search-tools/bin", tool),
-    );
   const executor = new OfflinePiExecutor(
     authKind === "codex"
       ? {
@@ -163,7 +151,6 @@ function offlineExecutor(
           credentialEnv: "OPENAI_API_KEY",
           credentialFile,
         },
-    stateDir,
   );
   const outputDir = join(root, "evidence");
   const context: RunContext = {

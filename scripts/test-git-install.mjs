@@ -106,6 +106,49 @@ const manifest = JSON.parse(
   readFileSync(join(installed, "package.json"), "utf8"),
 );
 assert.equal(manifest.bin.jared, "dist/src/main.js");
+const setup = run(join(prefix, "bin/jared"), [
+  "setup",
+  "--no-login",
+  "--no-register",
+]);
+assert.match(setup, /Packaged file tools ready/);
+assert(!setup.includes("Allow bundled Pi to download"));
+assert(
+  !existsSync(join(home, ".pi/agent/bin")),
+  "no global Pi tool cache needed",
+);
+assert(
+  !existsSync(join(home, ".local/state/jared-local/search-tools")),
+  "no legacy managed helper cache created",
+);
+// Run the installed SDK's actual tools, not just version strings or mocks.
+const probe = join(root, "native-probe");
+mkdirSync(probe);
+writeFileSync(join(probe, "probe.txt"), "JARED_GIT_INSTALL_PROBE\\n");
+run(
+  process.execPath,
+  [
+    "--input-type=module",
+    "-e",
+    `
+  import {findPackageJSON} from 'node:module';
+  import {dirname,join} from 'node:path';
+  import {pathToFileURL} from 'node:url';
+  const {searchToolPath}=await import(${JSON.stringify(pathToFileURL(join(installed, "dist/src/search-tools.js")).href)});
+  process.env.PATH=searchToolPath(); process.env.PI_OFFLINE='1';
+  globalThis.fetch=()=>{throw new Error('network_forbidden')};
+  const sdkPackage=findPackageJSON('@earendil-works/pi-coding-agent',pathToFileURL(${JSON.stringify(join(installed, "package.json"))}));
+  const sdk=join(dirname(sdkPackage),'dist/index.js');
+  const {createFindToolDefinition,createGrepToolDefinition}=await import(pathToFileURL(sdk).href);
+  const cwd=process.cwd(), ctx={cwd}, signal=AbortSignal.timeout(10000);
+  for (const [tool,args] of [[createFindToolDefinition(cwd),{pattern:'probe.txt'}],[createGrepToolDefinition(cwd),{pattern:'JARED_GIT_INSTALL_PROBE',glob:'probe.txt'}]]) {
+    const result=await tool.execute('probe',args,signal,undefined,ctx);
+    if(!result.content.some(c=>c.type==='text'&&c.text.includes('probe.txt'))) throw new Error('installed_native_search_failed');
+  }
+`,
+  ],
+  probe,
+);
 // Resolve real runtime modules too: --help intentionally has no dependencies.
 run(process.execPath, [
   "--input-type=module",
@@ -113,5 +156,5 @@ run(process.execPath, [
   `await import(${JSON.stringify(pathToFileURL(join(installed, "dist/src/mcp.js")).href)}); console.log('runtime imports ready');`,
 ]);
 console.log(
-  "PASS: global Git install included prebuilt CLI, excluded dev-only files/dependencies, and loaded MCP runtime.",
+  "PASS: global Git install includes CLI and native tools; setup needs no helper cache/downloads; installed Pi find+grep and MCP imports passed.",
 );

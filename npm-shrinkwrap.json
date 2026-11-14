@@ -1,12 +1,12 @@
 {
   "name": "@jared-local/cli",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@jared-local/cli",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "dependencies": {
         "@earendil-works/pi-ai": "1.5.2",
         "@earendil-works/pi-coding-agent": "1.5.2",

@@ -1,13 +1,6 @@
 import { execFileSync } from "node:child_process";
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  copyFileSync,
-  existsSync,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { tmpdir } from "./temp.js";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -31,31 +24,7 @@ export function isolated() {
     '{"sentinel":"GLOBAL-SECRET-DO-NOT-IMPORT"}\n',
     { mode: 0o600 },
   );
-  // Binary-only fixture: this machine has Pi-cached fd, not system fd.
-  const bin = join(env.PI_CODING_AGENT_DIR, "bin");
-  mkdirSync(bin);
-  for (const [tool, candidates] of Object.entries({
-    fd: [
-      "/usr/bin/fd",
-      "/usr/bin/fdfind",
-      "/opt/homebrew/bin/fd",
-      "/usr/local/bin/fd",
-      join(homedir(), ".pi/agent/bin/fd"),
-    ],
-    rg: [
-      "/usr/bin/rg",
-      "/opt/homebrew/bin/rg",
-      "/usr/local/bin/rg",
-      join(homedir(), ".pi/agent/bin/rg"),
-    ],
-  })) {
-    const source = candidates.find(existsSync);
-    if (!source)
-      throw new Error(
-        `native search tests need existing ${tool}; no test downloads allowed`,
-      );
-    copyFileSync(source, join(bin, tool));
-  }
+  // Deliberately no global Pi helper cache or host-tool discovery.
   return { root, env };
 }
 export function project(root: string, name: string) {

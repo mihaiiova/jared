@@ -13,8 +13,8 @@ setup preserves valid choices; offers to reuse your Pi login (with consent), or
 bundled Pi SDK login when missing; --dedicated is optional advanced mode.
 --use-pi-auth explicitly consents to the shared auth pointer (never login). Offers
 preview/consent Pi MCP registration. Bootstrap without auth/registration:
---no-login --no-register (does not grant helper-download consent).
-Setup reuses fd/fdfind and rg, or asks before native Pi helper downloads.
+--no-login --no-register. fd and rg are included in this installation.
+Setup never discovers/copies host search tools or downloads helpers.
 Optional initial API-key alternative: --api-key-file /private/file
   --provider openai|anthropic --model exact-model-id (never auto-substituted).
 No published package claim. No HTTP/token/remote Git setup. No implementation,

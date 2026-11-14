@@ -1,48 +1,54 @@
-# Verification — WIP
+# Verification — self-contained Git install candidate (0.3.0)
 
-## Recorded Linux checks
+## Scope
 
-On Linux with Node 22.23.2/npm 10.9.8, `npm run typecheck` passed and `npm test` (including its build step) passed **93 tests, 0 failures, 0 skipped** after the Git-install fix. The separate real Git-install regression also passed.
+This revision replaces setup-time host/Pi search-helper discovery, copying, download consent and managed caches with package-owned runtime binaries. Node >=22.19 and system Git remain prerequisites for the supported npm-from-Git installation. No Docker, standalone Pi, global fd/rg or Pi helper cache is required.
 
-The suite includes:
+The previous Git-install fix and its Linux 93-test baseline remain recorded in Git history. Fresh checks for this revision on Linux x64/Node 22.23.2/npm 10.9.8: build, type-check and the full sequential suite passed **94 tests, 0 failures, 0 skipped**. The suite includes actual installed-package Pi find/grep and two production stdio clients. A package inventory check found all eight executable binaries and licenses, no retired preparation helper, and no research notes in the archive (about 13.9 MB compressed / 32.6 MB unpacked, excluding installed npm dependencies).
 
-- Standalone packed/offline installation and managed native find+grep.
-- Two production stdio clients, explicit project routing and worker restart.
-- Ownership exclusion and lock release after SIGKILL.
-- Cancellation, retained-job recovery and receipt-persistence failure cleanup.
-- Isolated native Pi startup with synthetic credentials and child-local network denial; no model prompt, inference or login.
+## Runtime provenance and platform limits
 
-The initial portability run exposed a SQLite import warning in the isolated Codex error protocol. SQLite now loads lazily when acquiring the ownership lock; the strict startup protocol test then passed unchanged.
+`vendor/tools/manifest.json` records eight binaries across macOS/Linux x64/ARM64, their upstream archive URLs/SHA256, extracted file SHA256, versions and licenses. The explicit developer-only `scripts/vendor-tools.mjs` verifies the pinned upstream archive hashes before extracting only the named binaries/licenses. Normal installation/setup/build does not fetch tools.
 
-Ten bundled native assets remain hash-verified. The independent current-files source review identified CLI/documentation inconsistencies and missing internal-worker restart instructions, which were corrected. That review was not exact-commit or product-integration approval.
+- fd 10.3.0 is pinned because it supplies both Mac architectures; later upstream fd releases dropped Intel Mac binaries.
+- ripgrep 15.1.0 is pinned for all targets.
+- Linux x64 uses musl builds. Linux ARM64 ripgrep is a GNU libc build (its ELF version requirements include glibc 2.18); Alpine ARM64 is not a supported runtime bundle.
+- Both Mac bundles have upstream bytes/checksums verified here, **not native execution proof**. Native Mac CI/user execution remains required.
+- `scripts/verify-runtime-tools.mjs` checks the complete matrix/licenses without executing foreign-platform binaries.
 
-## Git installation fix
-
-`TMPDIR=/a/private/disk-backed/temp npm run test:git-install` exercises a real global installation from a clone of committed HEAD and an isolated HOME/prefix, using only the existing npm cache. It intentionally excludes uncommitted/rebuilt files; commit the candidate before running it. It reproduced the missing TypeScript error before the fix. A bounded probe confirmed that npm 10.9.8 passed `npm_config_global=true` into its nested Git preparation install: the working directory was correct, but it had no local `node_modules`.
-
-The fix ships generated `dist/src/` JavaScript in Git and removes both the `prepare` hook and npm's special `build` script name, avoiding dependency preparation entirely. Development compilation is explicit (`npm run build:local`). Runtime imports and the installed `jared --help` now pass after a real isolated Git-based global install on Linux/npm 10.9.8. The installed package excludes development sources, tests and the TypeScript compiler. CI rebuilds and rejects generated-code drift, including untracked generated modules, and runs the Git-install regression against committed content on every platform in its matrix. A synthetic negative control deliberately committed an import while leaving its generated module untracked: the drift guard rejected it, and the committed-content install failed with `ERR_MODULE_NOT_FOUND` rather than silently copying the missing module from the worktree.
-
-The regression can also validate an explicitly pushed Jared ref: `npm run test:git-install -- 'git+https://github.com/mihaiiova/jared.git#REF'`. Remote mode uses `--prefer-offline` and allows downloads of the public GitHub archive and dependencies missing from the npm cache; default local mode uses `--offline`. Tests do not authenticate with a provider, change the user install prefix or run setup. CI configuration is not proof of a native Mac result. Repository delivery, installability and provider/product success remain separate outcomes.
-
-## macOS: native verification pending
-
-Platform acceptance and Darwin `ps` parsers have deterministic source-level tests. `.github/workflows/ci.yml` configures Linux, Apple Silicon macOS and Intel macOS checks. Workflow configuration alone is not execution evidence; inspect actual CI results for the exact commit.
-
-Native Mac setup, rapid subprocess startup, cancellation and manual orphan recovery have not been exercised locally. After a hard service crash on macOS, live orphan identities are deliberately unconfirmed across owner sessions and are not speculatively killed. Follow the [operator recovery procedure](operator-setup.md#recovering-retained-orphan-processes). Older Linux `flock` workers must be stopped before switching ownership-lock protocols.
-
-No live provider inference or product audit establishes audit quality or model entitlement. Fresh-machine helper provisioning has mocked coverage; live download connectivity remains unverified. Earlier exploratory network controls were not reliable and are not accepted as proof of network containment; the final child-local startup guard denies outbound fetch/TCP/TLS attempts. SQLite experimental warnings in ordinary service processes are expected.
-
-## Reproduce
-
-Use Node >=22.19, Git and installed `fd`/`fdfind` and `rg` for native helper tests. Tests do not grant automatic prerequisite-download consent.
+## Required checks
 
 ```sh
 npm ci --ignore-scripts
 npm run typecheck
 npm test
-npm run test:git-install
-npm run smoke --ignore-scripts
 npm pack --dry-run
 ```
 
-The standalone and Git-install tests install only into temporary prefixes. Synthetic fixture credentials are not real logins. Keep generated reports, snapshots, auth and local test artifacts private; they are not publication inputs.
+The sequential suite includes native Pi find/grep with packaged binaries, fresh HOME/no Pi cache, no helper-download prompts, package checksum/path/mode rejection, missing/damaged installation guidance, source-only guards, auth consent, durable jobs, cancellation and retention. The standalone tarball install uses an isolated prefix and no global helper fixture.
+
+The first test run used an excessively long disk-backed TMPDIR and hit the existing Unix-socket path limit; it also caught an ESM-only SDK resolution error in the new native test probe. Those are not accepted passes. The probe now resolves the installed SDK's package entry correctly, and the successful full run used a short canonical temp root.
+
+After committing the candidate:
+
+```sh
+npm run test:git-install
+```
+
+This tests real global installation from committed Git content with an isolated HOME/prefix and cached npm dependencies. It runs setup without login/registration, then the installed SDK's actual find/grep tools with downloads disabled, plus CLI help and MCP runtime imports. It does not use rebuilt/uncommitted files to mask missing package artifacts.
+
+Explicit remote-ref validation is also available:
+
+```sh
+npm run test:git-install -- 'git+https://github.com/mihaiiova/jared.git#REF'
+```
+
+Remote mode allows public GitHub/dependency downloads; local mode uses npm offline. Neither mode logs in, runs inference or changes the user's installed prefix. CI checks generated/vendored drift, including untracked files, and exercises the supported OS/CPU targets without installing host search helpers.
+
+## Evidence limitations
+
+No independent reviewer acceptance is claimed for this revision: this existing session's subagent launcher still references the retired workspace's extension path. No alternate launcher or policy bypass was used. No live login/model entitlement or product-quality audit is established by these installation tests. Provider-backed checks require separate authorization and budget. No installed user CLI, existing credentials, registration or retained job state is changed by the isolated tests. Old managed helper caches are not migrated or removed; workers ignore them after restart.
+
+A failed/missing/modified package is not repaired by setup. Doctor distinguishes installation readiness from selected auth presence and client registration. Native tool `--version` checks do not replace real find/grep coverage or a full audit.
+
+The preexisting macOS hard-crash rule remains: a new owner retains uncertain live orphans instead of signalling stale PIDs. Follow the documented operator recovery procedure. No browser/Flutter/rendered visual verification is part of this source-audit iteration.
