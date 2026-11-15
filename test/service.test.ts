@@ -69,11 +69,18 @@ test("fetch exact full SHA, reject missing SHA/ref injection and implementation 
 test("bounded concurrency 2 and conservative per-project serialization", async () => {
   let count = 0,
     max = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const executor = new FakeExecutor(async () => {
     count++;
     max = Math.max(max, count);
-    await delay(160);
-    count--;
+    try {
+      await gate;
+    } finally {
+      count--;
+    }
     return undefined;
   });
   const f = await fixture(executor);
@@ -86,13 +93,22 @@ test("bounded concurrency 2 and conservative per-project serialization", async (
       ["b", "one"],
       ["c", "two"],
       ["d", "three"],
-    ])
+    ]) {
       ids.push(await submit(f.service, f.submission(key, project)));
+      // Caller pacing must not decide whether executor phases overlap.
+      await delay(1000);
+    }
+    await waitFor(() => count >= 2);
+    assert.equal(count, 2);
+    assert.equal(f.service.store.job(ids[1]).execution, "queued");
+    assert.equal(f.service.store.job(ids[3]).execution, "queued");
+    release();
     const jobs = await Promise.all(ids.map((id) => terminal(f.service, id)));
     assert(jobs.every((j) => j.taskOutcome === "delivered"));
     assert.equal(max, 2);
     assert(jobs[1].startedAt! >= jobs[0].endedAt!);
   } finally {
+    release();
     await f.service.close();
   }
 });

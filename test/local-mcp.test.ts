@@ -232,8 +232,13 @@ test("actual stdio clients share local worker, explicit multi-project routing, u
     clients.length = 0;
     await worker.close();
     worker = await startWorker(loadLocalConfig(), new FakeExecutor());
+    startupPin = createConnection(socketPath(loadLocalConfig()));
+    await once(startupPin, "connect");
+    await delay(2000);
     const d = await client(main, f.env, "/");
     clients.push(d);
+    startupPin.destroy();
+    startupPin = undefined;
     assert.equal(
       (await call(d, "get_result", { projectId: "one", jobId: id1 })).data
         .visualVerification,

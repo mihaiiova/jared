@@ -24,6 +24,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const readline = require('node:readline');
 const mode = process.argv[2];
+// Simulate CLI initialization slower than the former 400ms abort deadline.
+if (mode === 'wait') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 600);
+if (mode === 'startup-wait') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
 const root = path.dirname(process.env.JARED_AUDIT_GUARD_RECEIPT);
 const send = e => process.stdout.write(JSON.stringify(e) + '\n');
 readline.createInterface({ input: process.stdin }).on('line', line => {
@@ -223,7 +226,7 @@ test("PiExecutor offline RPC failures are bounded, fail closed and keep safe gua
     ["agent-aborted", "pi_incomplete_output"],
     ["truncated", "pi_incomplete_output"],
   ])
-    await t.test(mode, { timeout: 10000 }, async () => {
+    await t.test(mode, { timeout: 60000 }, async () => {
       const f = offlineExecutor(mode);
       await assert.rejects(f.executor.run(f.context), (error) => {
         assert(error instanceof Error);
@@ -244,27 +247,51 @@ test("PiExecutor offline RPC failures are bounded, fail closed and keep safe gua
 
 test("PiExecutor offline abort/deadline signals send native abort and stop the group", async (t) => {
   for (const trigger of ["caller", "deadline"])
-    await t.test(trigger, { timeout: 10000 }, async () => {
+    await t.test(trigger, { timeout: 60000 }, async () => {
       const f = offlineExecutor("wait");
       const controller = new AbortController();
-      const signal =
-        trigger === "deadline" ? AbortSignal.timeout(400) : controller.signal;
-      const run = f.executor.run({ ...f.context, signal });
+      const run = f.executor.run({ ...f.context, signal: controller.signal });
       const rejected = assert.rejects(run, /pi_aborted/);
-      if (trigger === "caller") {
-        await waitFor(
-          () =>
-            existsSync(join(f.context.outputDir, "commands.jsonl")) &&
-            f.commands().some((c) => c.type === "prompt"),
+      // An abort-command assertion needs a running RPC peer, not a timer race
+      // against native process startup. The service test covers whole-job expiry.
+      await waitFor(
+        () =>
+          existsSync(join(f.context.outputDir, "commands.jsonl")) &&
+          f.commands().some((c) => c.type === "prompt"),
+      );
+      if (trigger === "deadline") {
+        const deadline = AbortSignal.timeout(10);
+        deadline.addEventListener(
+          "abort",
+          () => controller.abort(deadline.reason),
+          { once: true },
         );
-        controller.abort();
-      }
+      } else controller.abort();
       await rejected;
+      if (trigger === "deadline")
+        assert.equal(controller.signal.reason.name, "TimeoutError");
       assert(f.commands().some((c) => c.type === "abort"));
       assert.equal(f.receipt().stopConfirmed, true);
       assert(!groupAlive(f.receipt().group.pid));
     });
 });
+
+test(
+  "PiExecutor deadline before RPC readiness stops the owned group without requiring command receipts",
+  { timeout: 60000 },
+  async () => {
+    const f = offlineExecutor("startup-wait");
+    await assert.rejects(
+      f.executor.run({ ...f.context, signal: AbortSignal.timeout(10) }),
+      /pi_aborted/,
+    );
+    assert(!existsSync(join(f.context.outputDir, "commands.jsonl")));
+    assert.equal(f.receipt().accepted, false);
+    assert.equal(f.receipt().guardVerified, false);
+    assert.equal(f.receipt().stopConfirmed, true);
+    assert(!groupAlive(f.receipt().group.pid));
+  },
+);
 
 test("real adapter offline guard failure reaches persistent job diagnostic; provider text does not", async () => {
   const { executor } = offlineExecutor("guard-invalid");
