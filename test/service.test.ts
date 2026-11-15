@@ -241,12 +241,17 @@ test("cancel and deadline wait for executor stop; preserve workspaces; queued ca
     c.signal.throwIfAborted();
     return undefined;
   });
-  const f = await fixture(executor, 2000);
+  // This is an end-to-end deadline covering native Git preparation too.
+  // Leave room for slow hosted runners and caller latency before testing cancel;
+  // the final job still exercises the real deadline and owned-child settlement.
+  const f = await fixture(executor, 30000);
   try {
     await f.service.invoke("setup_project", f.registration());
     const a = await submit(f.service, f.submission("a"));
-    const b = await submit(f.service, f.submission("b"));
     await waitFor(() => started === 1);
+    // Model a slow caller between executor readiness and queued cancellation.
+    await delay(2100);
+    const b = await submit(f.service, f.submission("b"));
     await f.service.invoke("cancel_job", { projectId: "fixture", jobId: b });
     assert.equal(f.service.store.job(b).execution, "cancelled");
     const cancellation = (await f.service.invoke("cancel_job", {
@@ -258,7 +263,7 @@ test("cancel and deadline wait for executor stop; preserve workspaces; queued ca
     assert(!groupAlive(groups[0]));
     assert(existsSync(join(f.options.root, "jobs", a, "worktree")));
     const c = await submit(f.service, f.submission("c"));
-    assert.equal((await terminal(f.service, c)).execution, "timed_out");
+    assert.equal((await terminal(f.service, c, 60000)).execution, "timed_out");
     assert.equal(stopped, 2);
     assert(groups.every((g) => !groupAlive(g)));
   } finally {

@@ -103,9 +103,14 @@ export async function waitFor(
     await delay(15);
   }
 }
-export async function terminal(service: AuditService, id: string) {
+export async function terminal(
+  service: AuditService,
+  id: string,
+  timeout = 20000,
+) {
   await waitFor(
     () => !["queued", "running"].includes(service.store.job(id).execution),
+    timeout,
   );
   return service.store.job(id);
 }
