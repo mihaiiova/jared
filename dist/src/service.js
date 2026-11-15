@@ -9,6 +9,7 @@ import { neutralPacket } from "./executor.js";
 import { fetchExact, git, prepareWorkspace, snapshot, sourceAt, } from "./git.js";
 import { digest, groupAlive, noSymlinks, owned, ownerLock, readBounded, sameProcess, pathExists, } from "./safety.js";
 import { agentReportSchema, resultSchema, setupProjectSchema, submitSchema, integrationSchema, contextSchema, ackSchema, jobSchema, requireThat, ServiceError, } from "./contracts.js";
+import { activitySchema, progressView, } from "./progress.js";
 export class AuditService {
     options;
     release;
@@ -25,6 +26,10 @@ export class AuditService {
     }
     static async open(options) {
         supportedPlatform();
+        requireThat(options.timeoutMs === undefined ||
+            (Number.isSafeInteger(options.timeoutMs) &&
+                options.timeoutMs > 0 &&
+                options.timeoutMs <= 3600000), "invalid_job_timeout");
         const release = await ownerLock(resolve(options.root));
         let service;
         try {
@@ -102,6 +107,10 @@ export class AuditService {
                 ? "interrupted_no_replay"
                 : "operator_process_reconciliation_required";
             job.endedAt = new Date().toISOString();
+            if (job.progress) {
+                job.progress.phase = "terminal";
+                job.progress.phaseStartedAt = job.progress.updatedAt = job.endedAt;
+            }
             this.store.save(job, "restart_reconciliation");
         }
     }
@@ -164,7 +173,8 @@ export class AuditService {
                     .prepare("UPDATE source_reads SET groups_json=? WHERE id=?")
                     .run(JSON.stringify(groups), readId);
             };
-            const timer = setTimeout(() => controller.abort(), this.options.timeoutMs ?? 120000);
+            // Source reads have no model phases; retain their independent native-I/O bound.
+            const timer = setTimeout(() => controller.abort(), 120000);
             const done = (async () => {
                 try {
                     await fetchExact(dir, repository, s.commit, controller.signal, observe);
@@ -208,6 +218,8 @@ export class AuditService {
                 evidenceRetained: true,
             };
         }
+        if (name === "get_job_logs")
+            return this.store.jobLogs(input);
         const { projectId, jobId } = jobSchema.parse(input);
         const job = this.store.authorizedJob(projectId, jobId);
         if (name === "get_job")
@@ -215,7 +227,8 @@ export class AuditService {
                 ...job,
                 result: undefined,
                 groups: undefined,
-                events: this.store.events(jobId),
+                progress: progressView(job.progress),
+                events: this.store.recentEvents(jobId),
             };
         if (name === "get_result") {
             requireThat(job.result, "result_not_available");
@@ -235,6 +248,10 @@ export class AuditService {
                 job.agentOutcome = "not_run";
                 job.taskOutcome = "blocked";
                 job.endedAt = new Date().toISOString();
+                if (job.progress) {
+                    job.progress.phase = "terminal";
+                    job.progress.phaseStartedAt = job.progress.updatedAt = job.endedAt;
+                }
                 delete job.failurePhase;
                 delete job.diagnostic;
                 this.store.save(job, "cancelled");
@@ -296,7 +313,11 @@ export class AuditService {
             const existing = this.store.idempotent(s.projectId, "local", s.idempotencyKey);
             if (existing) {
                 requireThat(existing.fingerprint === fingerprint, "idempotency_conflict");
-                return { jobId: existing.jobId, idempotent: true };
+                return {
+                    jobId: existing.jobId,
+                    idempotent: true,
+                    timeoutMs: existing.progress?.timeoutMs,
+                };
             }
             requireThat(this.store.outstanding("local") < 100, "queue_limit");
             const job = {
@@ -311,9 +332,20 @@ export class AuditService {
                 verification: "not_run",
                 createdAt: new Date().toISOString(),
                 groups: [],
+                progress: {
+                    phase: "queued",
+                    phaseStartedAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    timeoutMs: this.options.timeoutMs ?? 120000,
+                    activityCount: 0,
+                },
             };
             this.store.insert(job);
-            return { jobId: job.jobId, idempotent: false };
+            return {
+                jobId: job.jobId,
+                idempotent: false,
+                timeoutMs: job.progress.timeoutMs,
+            };
         });
         this.schedule();
         return result;
@@ -373,18 +405,105 @@ export class AuditService {
     }
     async run(job, active) {
         const signal = active.controller.signal;
+        const timeoutMs = job.progress?.timeoutMs ?? this.options.timeoutMs ?? 120000;
+        job.progress ??= {
+            phase: "queued",
+            phaseStartedAt: job.createdAt,
+            updatedAt: job.createdAt,
+            timeoutMs,
+            activityCount: 0,
+        };
+        job.progress.deadlineAt = new Date(Date.now() + timeoutMs).toISOString();
+        let lastActivityWrite = 0, persistedActivityCount = 0, progressFailed = false;
+        const flushActivity = () => {
+            const p = job.progress;
+            this.store.save(job, "progress", {
+                phase: p.phase,
+                role: p.role,
+                runId: p.runId,
+                activity: p.lastActivity,
+                tool: p.tool,
+                activityCount: p.activityCount,
+            });
+            lastActivityWrite = Date.now();
+            persistedActivityCount = p.activityCount;
+        };
+        const activity = (input) => {
+            if (job.execution !== "running")
+                return;
+            const parsed = activitySchema.safeParse(input);
+            if (!parsed.success)
+                return;
+            const now = Date.now(), p = job.progress;
+            p.lastActivityAt = p.updatedAt = new Date(now).toISOString();
+            p.lastActivity = parsed.data.kind;
+            p.tool = parsed.data.tool;
+            p.activityCount++;
+            // Token/tool activity can be very noisy. Aggregate counts and retain at
+            // most one activity sample/second, but always persist protocol milestones.
+            const sampled = [
+                "workspace_activity",
+                "model_activity",
+                "tool_started",
+                "tool_finished",
+            ].includes(parsed.data.kind);
+            if (!sampled || now - lastActivityWrite >= 1000) {
+                try {
+                    flushActivity();
+                }
+                catch (error) {
+                    progressFailed = true;
+                    throw error;
+                }
+            }
+        };
         const timer = setTimeout(() => {
             active.reason ??= "timed_out";
             active.controller.abort();
-        }, this.options.timeoutMs ?? 120000);
+            try {
+                activity({ kind: "deadline_expired" });
+            }
+            catch {
+                /* Still abort if storage fails. */
+            }
+        }, timeoutMs);
+        const activityFlush = setInterval(() => {
+            if (job.progress.activityCount === persistedActivityCount)
+                return;
+            try {
+                flushActivity();
+            }
+            catch {
+                progressFailed = true;
+                active.controller.abort();
+            }
+        }, 1000);
         let phase = "fetch";
+        const setPhase = (next, role, runId) => {
+            phase = next;
+            const p = job.progress;
+            p.phase = next;
+            p.phaseStartedAt = p.updatedAt = new Date().toISOString();
+            p.role = role;
+            p.runId = runId;
+            p.tool = undefined;
+            this.store.save(job, "progress", {
+                phase: next,
+                role,
+                runId,
+                activityCount: p.activityCount,
+            });
+        };
         let reportDir;
         const project = this.store.project(job.projectId);
         const observe = (g) => {
             job.groups.push(g);
+            if (phase !== "lead" && phase !== "ui-reviewer")
+                activity({ kind: "workspace_activity" });
             this.store.save(job, "owned_process");
         };
         try {
+            setPhase("fetch");
             const dir = this.jobDir(job);
             mkdirSync(dir, { recursive: true, mode: 0o700 });
             owned(this.root, dir);
@@ -398,9 +517,9 @@ export class AuditService {
             const packetHash = digest(JSON.stringify(packet));
             const runs = [];
             for (const role of ["lead", "ui-reviewer"]) {
-                phase = role;
                 signal.throwIfAborted();
                 const runId = randomUUID(), outputDir = join(dir, "evidence", role);
+                setPhase(role, role, runId);
                 mkdirSync(outputDir, { recursive: true, mode: 0o700 });
                 writeFileSync(join(outputDir, "packet.json"), JSON.stringify({ runId, role, packet }), { mode: 0o600 });
                 const output = await this.options.executor.run({
@@ -411,9 +530,10 @@ export class AuditService {
                     packet: structuredClone(packet),
                     signal,
                     observe,
+                    progress: activity,
                 });
                 requireThat(output.agentOutcome === "completed", "agent_not_completed");
-                phase = role + "_report_validation";
+                setPhase((role + "_report_validation"), role, runId);
                 const report = agentReportSchema.parse(JSON.parse(readBounded(outputDir, output.reportPath)));
                 requireThat(report.jobId === job.jobId &&
                     report.reviewedCommit === before.actualCommit, "report_linkage_failed");
@@ -430,7 +550,7 @@ export class AuditService {
                     packetHash,
                 });
             }
-            phase = "host_validation";
+            setPhase("host_validation");
             signal.throwIfAborted();
             const after = await snapshot(worktree, signal, observe);
             requireThat(after.actualCommit === before.actualCommit && after.clean, "audit_mutated_workspace");
@@ -490,8 +610,9 @@ export class AuditService {
             job.taskOutcome = active.reason ? "blocked" : "failed";
             job.verification = "not_run";
             job.failurePhase = active.reason === "shutdown" ? "shutdown" : phase;
-            job.diagnostic =
-                active.reason === "shutdown"
+            job.diagnostic = progressFailed
+                ? "progress_storage_failed"
+                : active.reason === "shutdown"
                     ? "service_shutdown"
                     : error instanceof ServiceError
                         ? error.code
@@ -501,7 +622,9 @@ export class AuditService {
         }
         finally {
             clearTimeout(timer);
+            clearInterval(activityFlush);
             job.endedAt = new Date().toISOString();
+            setPhase("terminal");
             this.store.save(job, "terminal");
             if (reportDir) {
                 try {
@@ -511,6 +634,7 @@ export class AuditService {
                         execution: job.execution,
                         taskOutcome: job.taskOutcome,
                         diagnostic: job.diagnostic,
+                        progress: progressView(job.progress),
                     }, null, 2));
                 }
                 catch {

@@ -18,6 +18,7 @@ import {
   localPaths,
   socketPath,
   saveAuthSource,
+  saveJobTimeout,
 } from "./local-config.js";
 import { bundledAgent } from "./config.js";
 import { outsideCheckouts, outsideRoots } from "./operator-paths.js";
@@ -32,6 +33,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
 import { requireThat } from "./contracts.js";
 import { verifySearchTools } from "./search-tools.js";
+import { jobTimeoutSchema } from "./progress.js";
 export function verifyAssets() {
   const root = bundledAgent();
   const manifest = JSON.parse(
@@ -75,6 +77,7 @@ function piRegistration() {
 export type SetupOptions = {
   noLogin: boolean;
   noRegister: boolean;
+  jobTimeoutMs?: number;
   usePiAuth?: boolean;
   dedicated?: boolean;
   api?: {
@@ -112,6 +115,8 @@ export async function setup(
   } = {},
 ) {
   supportedPlatform();
+  if (options.jobTimeoutMs !== undefined)
+    jobTimeoutSchema.parse(options.jobTimeoutMs);
   verifyAssets();
   verifySearchTools(); // Installed product assets, never PATH/Pi-cache discovery or downloads.
   requireThat(
@@ -119,6 +124,28 @@ export async function setup(
     "conflicting_auth_choices",
   );
   let c = bootstrap(options.api);
+  if (
+    options.jobTimeoutMs !== undefined &&
+    options.jobTimeoutMs !== c.jobTimeoutMs
+  ) {
+    let release;
+    try {
+      release = await ownerLock(c.stateDir);
+    } catch {
+      console.log(
+        "Timeout change blocked: close Jared clients, cancel active jobs and wait for the owned worker to exit, then rerun setup. No processes were killed.",
+      );
+      throw new Error("active_worker_timeout_change_blocked");
+    }
+    try {
+      c = saveJobTimeout(c, options.jobTimeoutMs);
+    } finally {
+      await release();
+    }
+  }
+  console.log(
+    `Whole-job timeout: ${c.jobTimeoutMs / 1000} seconds (workspace preparation + lead + reviewer; stop confirmation may take additional time).`,
+  );
   console.log(
     `Jared local setup: ${c.pi.provider}/${c.pi.model}\nPrivate configuration and state prepared; readiness checked below. Existing choices/auth are preserved.`,
   );
@@ -371,7 +398,11 @@ export function doctor() {
   );
   check(
     () => {
-      socketPath(loadLocalConfig());
+      const c = loadLocalConfig();
+      socketPath(c);
+      console.log(
+        `Whole-job timeout: ${c.jobTimeoutMs / 1000} seconds; explicit operator configuration, no automatic retries.`,
+      );
     },
     "Private local config/state ready",
     "Run jared setup --no-login --no-register; check private paths/permissions",

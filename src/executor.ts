@@ -13,6 +13,8 @@ import { OwnedProcess, type ProcessObserver } from "./process.js";
 import { validatePiConfig, piConfigSchema, type PiConfig } from "./config.js";
 import { digest, readBounded, noSymlinks } from "./safety.js";
 import { agentReportSchema, ServiceError, requireThat } from "./contracts.js";
+import type { Activity } from "./progress.js";
+
 export type Packet = {
   jobId: string;
   reviewedCommit: string;
@@ -31,6 +33,7 @@ export type RunContext = {
   packet: Packet;
   signal: AbortSignal;
   observe: ProcessObserver;
+  progress?: (activity: Activity) => void;
 };
 export type RunOutput = {
   agentOutcome: "completed" | "errored" | "aborted";
@@ -265,6 +268,7 @@ export class PiExecutor implements Executor {
                     JSON.stringify(["find", "grep", "ls", "read"]),
                 "audit_loadout_mismatch",
               );
+              if (!guardVerified) c.progress?.({ kind: "guard_verified" });
               guardVerified = true;
               send({
                 type: "prompt",
@@ -281,9 +285,26 @@ export class PiExecutor implements Executor {
                 fail();
                 continue;
               }
+              if (!accepted) c.progress?.({ kind: "prompt_accepted" });
               accepted = true;
               if (settled) resolveDone();
             }
+          } else if (event.type === "message_update") {
+            c.progress?.({ kind: "model_activity" });
+          } else if (
+            event.type === "tool_execution_start" ||
+            event.type === "tool_execution_end"
+          ) {
+            const tool = (["read", "ls", "find", "grep"] as const).find(
+              (name) => name === event.toolName,
+            );
+            c.progress?.({
+              kind:
+                event.type === "tool_execution_start"
+                  ? "tool_started"
+                  : "tool_finished",
+              tool,
+            });
           } else if (
             event.type === "message_end" &&
             event.message.role === "assistant"
@@ -294,6 +315,7 @@ export class PiExecutor implements Executor {
               .map((b) => b.text)
               .join("");
           } else if (event.type === "agent_settled") {
+            if (!settled) c.progress?.({ kind: "agent_settled" });
             settled = true;
             if (accepted) resolveDone();
           }
@@ -312,7 +334,12 @@ export class PiExecutor implements Executor {
     };
     c.signal.addEventListener("abort", abort, { once: true });
     try {
-      send({ type: "get_commands", id: "guard-check" });
+      try {
+        c.progress?.({ kind: "process_started" });
+        send({ type: "get_commands", id: "guard-check" });
+      } catch (error) {
+        fail(error);
+      }
       await done;
       c.signal.throwIfAborted();
       requireThat(
@@ -326,12 +353,22 @@ export class PiExecutor implements Executor {
       c.signal.removeEventListener("abort", abort);
       let stopConfirmed = false;
       try {
+        try {
+          c.progress?.({ kind: "stop_requested" });
+        } catch {
+          /* Logging cannot prevent owned-process stop. */
+        }
         await p.stop(() => {
           try {
             send({ type: "abort" });
           } catch {}
         });
         stopConfirmed = true;
+        try {
+          c.progress?.({ kind: "stop_confirmed" });
+        } catch {
+          /* Receipt still records confirmed stop. */
+        }
       } finally {
         if (lastText)
           writeFileSync(join(c.outputDir, "raw-response.txt"), lastText, {

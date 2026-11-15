@@ -23,6 +23,8 @@ import { oauthPath } from "./codex-auth.js";
 import { noSymlinks, pathExists } from "./safety.js";
 import { requireThat, ServiceError } from "./contracts.js";
 
+import { jobTimeoutSchema } from "./progress.js";
+
 const storedPi = z.union([
   piConfigSchema.options[0].omit({ jaredDir: true }),
   piConfigSchema.options[1].omit({ jaredDir: true }),
@@ -30,6 +32,7 @@ const storedPi = z.union([
 const schema = z.strictObject({
   schemaVersion: z.literal(1),
   stateDir: z.string(),
+  jobTimeoutMs: jobTimeoutSchema.default(120000),
   pi: storedPi,
 });
 export type LocalConfig = z.infer<typeof schema>;
@@ -133,6 +136,20 @@ export function executionConfig(c: LocalConfig): PiConfig {
   } catch {
     throw new ServiceError("authentication_missing_or_invalid_run_jared_setup");
   }
+}
+
+/** Caller must hold the state owner lock; never silently reconfigure an active worker. */
+export function saveJobTimeout(c: LocalConfig, timeoutMs: number) {
+  const next = schema.parse({
+    ...c,
+    jobTimeoutMs: jobTimeoutSchema.parse(timeoutMs),
+  });
+  // Revalidate file ownership/mode/no-follow properties immediately before writing.
+  loadLocalConfig();
+  writeFileSync(localPaths().configFile, JSON.stringify(next, null, 2) + "\n", {
+    mode: 0o600,
+  });
+  return loadLocalConfig();
 }
 
 /** Caller must hold the state owner lock, so an existing worker cannot retain old choices. */

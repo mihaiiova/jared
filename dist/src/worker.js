@@ -18,6 +18,7 @@ export async function startWorker(c, executor) {
     const path = socketPath(c);
     const service = await AuditService.open({
         root: c.stateDir,
+        timeoutMs: c.jobTimeoutMs,
         executor: executor ?? new PiExecutor({ ...c.pi, jaredDir: bundledAgent() }),
         checkReady: executor
             ? undefined

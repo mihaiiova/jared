@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { homedir } from "node:os";
-import { bootstrap, executionConfig, loadLocalConfig, localPaths, socketPath, saveAuthSource, } from "./local-config.js";
+import { bootstrap, executionConfig, loadLocalConfig, localPaths, socketPath, saveAuthSource, saveJobTimeout, } from "./local-config.js";
 import { bundledAgent } from "./config.js";
 import { outsideCheckouts, outsideRoots } from "./operator-paths.js";
 import { inspectCodexAuth, oauthPath, safeAuthPath, createCodexRuntime, } from "./codex-auth.js";
@@ -14,6 +14,7 @@ import { noSymlinks, ownerLock, pathExists } from "./safety.js";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { requireThat } from "./contracts.js";
 import { verifySearchTools } from "./search-tools.js";
+import { jobTimeoutSchema } from "./progress.js";
 export function verifyAssets() {
     const root = bundledAgent();
     const manifest = JSON.parse(readFileSync(join(root, "provenance.json"), "utf8"));
@@ -60,10 +61,30 @@ export async function bundledLogin(path, interaction, create = ModelRuntime.crea
 // Dependency arguments are offline test seams, never operator configuration.
 export async function setup(options, hooks = {}) {
     supportedPlatform();
+    if (options.jobTimeoutMs !== undefined)
+        jobTimeoutSchema.parse(options.jobTimeoutMs);
     verifyAssets();
     verifySearchTools(); // Installed product assets, never PATH/Pi-cache discovery or downloads.
     requireThat(!(options.usePiAuth && options.dedicated), "conflicting_auth_choices");
     let c = bootstrap(options.api);
+    if (options.jobTimeoutMs !== undefined &&
+        options.jobTimeoutMs !== c.jobTimeoutMs) {
+        let release;
+        try {
+            release = await ownerLock(c.stateDir);
+        }
+        catch {
+            console.log("Timeout change blocked: close Jared clients, cancel active jobs and wait for the owned worker to exit, then rerun setup. No processes were killed.");
+            throw new Error("active_worker_timeout_change_blocked");
+        }
+        try {
+            c = saveJobTimeout(c, options.jobTimeoutMs);
+        }
+        finally {
+            await release();
+        }
+    }
+    console.log(`Whole-job timeout: ${c.jobTimeoutMs / 1000} seconds (workspace preparation + lead + reviewer; stop confirmation may take additional time).`);
     console.log(`Jared local setup: ${c.pi.provider}/${c.pi.model}\nPrivate configuration and state prepared; readiness checked below. Existing choices/auth are preserved.`);
     const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY;
     const ask = hooks.ask ??
@@ -260,7 +281,9 @@ export function doctor() {
         verifySearchTools();
     }, "Packaged fd and rg pass checksums, file-safety and native execution checks", "Reinstall Jared: packaged fd/rg are missing, modified or cannot execute; setup never downloads tools");
     check(() => {
-        socketPath(loadLocalConfig());
+        const c = loadLocalConfig();
+        socketPath(c);
+        console.log(`Whole-job timeout: ${c.jobTimeoutMs / 1000} seconds; explicit operator configuration, no automatic retries.`);
     }, "Private local config/state ready", "Run jared setup --no-login --no-register; check private paths/permissions");
     check(() => {
         const c = loadLocalConfig();

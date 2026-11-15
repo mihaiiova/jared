@@ -306,8 +306,8 @@ test("packed standalone install outside checkout: bin/help/setup/doctor, two sim
     client(installed, f.env, f.root),
   ]);
   try {
-    assert.equal((await a.listTools()).tools.length, 10);
-    assert.equal((await b.listTools()).tools.length, 10);
+    assert.equal((await a.listTools()).tools.length, 11);
+    assert.equal((await b.listTools()).tools.length, 11);
     assert.match(
       (await call(a, "get_jared_guide", {})).data.guide,
       /same-user operator authority/,
@@ -352,7 +352,7 @@ test("packed standalone install outside checkout: bin/help/setup/doctor, two sim
   );
   const restarted = await client(installed, f.env, "/");
   try {
-    assert.equal((await restarted.listTools()).tools.length, 10);
+    assert.equal((await restarted.listTools()).tools.length, 11);
   } finally {
     await restarted.close();
   }
@@ -391,7 +391,7 @@ test("frontend retries exited starters while the previous owner's lock is still 
   let c: Awaited<ReturnType<typeof client>> | undefined;
   try {
     c = await client(main, f.env, "/");
-    assert.equal((await c.listTools()).tools.length, 10);
+    assert.equal((await c.listTools()).tools.length, 11);
   } finally {
     clearTimeout(timer);
     await releaseOnce();

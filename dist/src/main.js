@@ -7,6 +7,8 @@ const help = `Jared — WIP local-only source audits (Linux/macOS, Node >=22.19)
   jared setup [--use-pi-auth | --dedicated] [--no-login] [--no-register]
   jared doctor                 Read-only requirements/auth status; nonzero if missing
   jared mcp                    Stdio MCP; coding agents launch this automatically
+  jared logs --project ID --job UUID [--follow] [--after CURSOR] [--limit 1..100]
+  jared setup --job-timeout-seconds 600 --no-login --no-register
   jared --help
 
 setup preserves valid choices; offers to reuse your Pi login (with consent), or
@@ -15,6 +17,11 @@ bundled Pi SDK login when missing; --dedicated is optional advanced mode.
 preview/consent Pi MCP registration. Bootstrap without auth/registration:
 --no-login --no-register. fd and rg are included in this installation.
 Setup never discovers/copies host search tools or downloads helpers.
+Whole-job timeout defaults to 120s, configurable from 1 to 3600s. Close clients
+and wait for the owned worker to exit before changing it. No automatic retries.
+logs prints bounded metadata JSONL, never prompts/model text/tool output. It only
+reads retained state; --follow observes until terminal state or Ctrl-C. Silence
+means no new event was observed, not proof of a stalled model.
 Optional initial API-key alternative: --api-key-file /private/file
   --provider openai|anthropic --model exact-model-id (never auto-substituted).
 No published package claim. No HTTP/token/remote Git setup. No implementation,
@@ -33,14 +40,27 @@ try {
             "api-key-file": { type: "string" },
             provider: { type: "string" },
             model: { type: "string" },
+            "job-timeout-seconds": { type: "string" },
+            project: { type: "string" },
+            job: { type: "string" },
+            follow: { type: "boolean" },
+            after: { type: "string" },
+            limit: { type: "string" },
         },
     });
+    const integer = (value) => {
+        if (!/^[0-9]+$/.test(value) || !Number.isSafeInteger(Number(value)))
+            throw new Error("integer_required");
+        return Number(value);
+    };
     const command = positionals[0];
     if (values.help || !command)
         console.log(help);
     else if (positionals.length !== 1)
         throw new Error("one_command_required");
     else if (command === "setup") {
+        if (["project", "job", "follow", "after", "limit"].some((key) => Object.hasOwn(values, key)))
+            throw new Error("invalid_setup_flags");
         const { setup } = await import("./setup.js");
         let api;
         if (values["api-key-file"] || values.provider || values.model) {
@@ -60,7 +80,21 @@ try {
             api,
             usePiAuth: !!values["use-pi-auth"],
             dedicated: !!values.dedicated,
+            jobTimeoutMs: values["job-timeout-seconds"] === undefined
+                ? undefined
+                : integer(values["job-timeout-seconds"]) * 1000,
         });
+    }
+    else if (command === "logs") {
+        if (Object.keys(values).some((key) => !["project", "job", "follow", "after", "limit"].includes(key)))
+            throw new Error("invalid_logs_flags");
+        const { logs } = await import("./logs.js");
+        await logs({
+            projectId: values.project,
+            jobId: values.job,
+            after: values.after === undefined ? undefined : integer(values.after),
+            limit: values.limit === undefined ? undefined : integer(values.limit),
+        }, !!values.follow);
     }
     else if (Object.keys(values).length)
         throw new Error("flags_only_supported_for_setup");
