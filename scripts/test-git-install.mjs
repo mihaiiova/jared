@@ -13,8 +13,8 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Real installation from committed Git content, never the rebuilt working tree.
-// Local mode uses the existing npm cache only. Explicit remote validation allows
-// downloads; neither mode logs in, touches the user prefix or runs setup.
+// Both modes permit npm install-time registry access with cache preference.
+// Runtime setup/search below do not download tools or use provider credentials.
 const source = fileURLToPath(new URL("../", import.meta.url));
 const root = realpathSync(mkdtempSync(join(tmpdir(), "jared-git-install-")));
 const repo = join(root, "source");
@@ -80,7 +80,7 @@ if (process.argv[2]) {
 run("npm", [
   "install",
   "--global",
-  process.argv[2] ? "--prefer-offline" : "--offline",
+  "--prefer-offline",
   "--no-audit",
   "--no-fund",
   target,

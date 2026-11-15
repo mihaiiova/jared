@@ -251,7 +251,9 @@ test("packed standalone install outside checkout: bin/help/setup/doctor, two sim
       "install",
       "--prefix",
       prefix,
-      "--offline",
+      // npm ci seeds tarballs but not necessarily registry metadata. Allow
+      // install-time registry access; setup/search below remain offline.
+      "--prefer-offline",
       "--ignore-scripts",
       "--omit=dev",
       "--no-audit",
@@ -359,7 +361,7 @@ test("packed standalone install outside checkout: bin/help/setup/doctor, two sim
     10000,
   );
   console.log(
-    `Standalone pack: ${archive}; SHA256 ${createHash("sha256").update(readFileSync(archive)).digest("hex")}; installed native find+grep passed; ${files.length} package files; 6 native skills; offline isolated-prefix install, two stdio clients and automatic idle restart passed.`,
+    `Standalone pack: ${archive}; SHA256 ${createHash("sha256").update(readFileSync(archive)).digest("hex")}; installed native find+grep passed; ${files.length} package files; 6 native skills; isolated-prefix install, download-disabled native search, two stdio clients and automatic idle restart passed.`,
   );
 });
 

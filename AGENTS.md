@@ -31,7 +31,7 @@ npm pack --dry-run
 
 `npm test` rebuilds locally and verifies the vendored runtime manifest. Commit the resulting `dist/src/` files with TypeScript changes. Reject tracked or untracked drift in generated code and vendored tools after rebuilding. `npm run vendor:refresh` is a maintainer-only download of pinned upstream release archives, verified before extraction; update all checksums/licenses deliberately. Never put it in an install or setup hook. Do not add a `prepare` hook or a script named `build` without retesting npm's global Git-dependency installation behavior; the local compiler command is `npm run build:local`.
 
-After committing the candidate, run `npm run test:git-install`. It installs committed HEAD into an isolated prefix using cached dependencies; it intentionally ignores rebuilt/uncommitted files. An explicit remote-ref argument enables public downloads and must be authorized. No test success establishes provider entitlement, native Mac behavior or product acceptance beyond the exercised checks.
+After committing the candidate, run `npm run test:git-install`. It installs committed HEAD into an isolated prefix, prefers cached dependencies, and permits npm registry access for missing metadata/tarballs; it intentionally ignores rebuilt/uncommitted files. An explicit remote-ref argument also downloads the public GitHub source and must be authorized. Setup/native-search probes remain download-disabled and never use provider credentials. Do not assume `npm ci` warmed the registry metadata needed by a later offline install. No test success establishes provider entitlement, native Mac behavior or product acceptance beyond the exercised checks.
 
 ## Preserve boundaries and evidence
 

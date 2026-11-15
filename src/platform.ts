@@ -39,7 +39,7 @@ export function parseDarwinProcess(output: string): ProcessInfo | undefined {
   const match = output
     .trim()
     .match(
-      /^(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(\d+)\s+([A-Za-z+<>NEXsLWT-]+)$/,
+      /^(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(\d+)\s+([A-Za-z?+<>NEXsLWT-]+)$/,
     );
   requireThat(match, "process_inspection_failed");
   return {
@@ -92,7 +92,9 @@ export function processInfo(pid: number): ProcessInfo | undefined {
 export function parseProcessGroups(output: string, group: number): boolean {
   let alive = false;
   for (const line of output.trim().split("\n").filter(Boolean)) {
-    const match = line.trim().match(/^(\d+)\s+([A-Za-z+<>NEXsLWT-]+)$/);
+    // Apple's ps can report '?' for a transient unknown Mach thread state.
+    // Accept its syntax but keep it alive; only an explicit Z is a zombie.
+    const match = line.trim().match(/^(\d+)\s+([A-Za-z?+<>NEXsLWT-]+)$/);
     requireThat(match, "process_inspection_failed");
     if (Number(match[1]) === group && match[2][0] !== "Z") alive = true;
   }

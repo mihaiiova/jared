@@ -4,7 +4,7 @@
 
 This revision replaces setup-time host/Pi search-helper discovery, copying, download consent and managed caches with package-owned runtime binaries. Node >=22.19 and system Git remain prerequisites for the supported npm-from-Git installation. No Docker, standalone Pi, global fd/rg or Pi helper cache is required.
 
-The previous Git-install fix and its Linux 93-test baseline remain recorded in Git history. Fresh checks for this revision on Linux x64/Node 22.23.2/npm 10.9.8: build, type-check and the full sequential suite passed **94 tests, 0 failures, 0 skipped**. The suite includes actual installed-package Pi find/grep and two production stdio clients. A package inventory check found all eight executable binaries and licenses, no retired preparation helper, and no research notes in the archive (about 13.9 MB compressed / 32.6 MB unpacked, excluding installed npm dependencies).
+The previous Git-install fix and its Linux 93-test baseline remain recorded in Git history. Fresh checks for this revision on Linux x64/Node 22.23.2/npm 10.9.8: build, type-check and the full sequential suite passed **95 tests, 0 failures, 0 skipped** after the CI fixes below. The suite includes actual installed-package Pi find/grep and two production stdio clients. A package inventory check found all eight executable binaries and licenses, no retired preparation helper, and no research notes in the archive (about 13.9 MB compressed / 32.6 MB unpacked, excluding installed npm dependencies).
 
 ## Runtime provenance and platform limits
 
@@ -35,7 +35,7 @@ After committing the candidate:
 npm run test:git-install
 ```
 
-This passed for the committed 0.3.0 candidate on Linux x64: installation, noninteractive setup without login/registration, no helper cache/download, real installed Pi find/grep and MCP imports. It tests real global installation from committed Git content with an isolated HOME/prefix and cached npm dependencies. It runs setup without login/registration, then the installed SDK's actual find/grep tools with downloads disabled, plus CLI help and MCP runtime imports. It does not use rebuilt/uncommitted files to mask missing package artifacts.
+This passed for the committed 0.3.0 candidate on Linux x64: installation, noninteractive setup without login/registration, no helper cache/download, real installed Pi find/grep and MCP imports. It tests real global installation from committed Git content with an isolated HOME/prefix with npm cache preference; install-time registry metadata/dependencies may be fetched. It runs setup without login/registration, then the installed SDK's actual find/grep tools with downloads disabled, plus CLI help and MCP runtime imports. It does not use rebuilt/uncommitted files to mask missing package artifacts.
 
 Explicit remote-ref validation is also available:
 
@@ -43,7 +43,13 @@ Explicit remote-ref validation is also available:
 npm run test:git-install -- 'git+https://github.com/mihaiiova/jared.git#REF'
 ```
 
-Remote mode allows public GitHub/dependency downloads; local mode uses npm offline. Neither mode logs in, runs inference or changes the user's installed prefix. CI checks generated/vendored drift, including untracked files, and is configured to exercise the supported OS/CPU targets without installing host search helpers. Current public-runner labels are Ubuntu x64/ARM64 and macOS 15 ARM64/Intel; the retired `macos-14` label was replaced. Runner mapping was checked against GitHub's current hosted-runner reference; workflow configuration is not a passing CI result.
+Both modes use `--prefer-offline` for npm dependency installation. A fresh `npm ci` cache can contain tarballs without registry metadata, so requiring `--offline` made CI fail with `ENOTCACHED` even though runtime helpers were packaged. Local mode uses a local Git source; remote mode additionally downloads public GitHub source. Setup/native-search probes still disable helper downloads and do not call a provider. Neither mode logs in, runs inference or changes the user's installed prefix. CI checks generated/vendored drift, including untracked files, and is configured to exercise the supported OS/CPU targets without installing host search helpers. Current public-runner labels are Ubuntu x64/ARM64 and macOS 15 ARM64/Intel; the retired `macos-14` label was replaced. Runner mapping was checked against GitHub's current hosted-runner reference; workflow configuration is not a passing CI result.
+
+## CI failure diagnosis and fixes
+
+The first four-platform CI run failed in npm installation because `--offline` assumed registry metadata was cached. A clean local reproduction seeded only through `npm ci` failed with the same `ENOTCACHED`; allowing cache-preferred npm registry access made that install and no-login setup pass. This changes installation-test networking, not runtime helper downloads or provider access.
+
+Mac CI also failed in the process-state parser during cleanup. Apple's [`ps/tasks.c`](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/tasks.c) explicitly maps unknown Mach thread states to `?`; the original parser rejected that valid state. A regression fixture reproduced `process_inspection_failed` before the fix and passes afterward. Both identity and group parsing accept `?` while treating it as live/uncertain, never as confirmed termination. Malformed output still fails closed and the conservative cross-owner Mac receipt policy is unchanged. The exact transient row was not logged by the earlier CI run; fresh native CI is required to confirm the full Mac failure set is resolved.
 
 ## Evidence limitations
 
