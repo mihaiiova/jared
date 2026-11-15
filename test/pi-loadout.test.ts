@@ -10,15 +10,25 @@ import {
   mkdtempSync,
 } from "node:fs";
 import { tmpdir } from "./temp.js";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { scopedAuditPath } from "../src/audit-guard.js";
-import { auditLaunchArgs, codexLaunchCommand } from "../src/executor.js";
+import {
+  PiExecutor,
+  neutralPacket,
+  codexLaunchCommand,
+} from "../src/executor.js";
+import { bundledAgent } from "../src/config.js";
 import { OwnedProcess } from "../src/process.js";
 import { fixture, waitFor } from "./helpers.js";
-for (const mode of ["api-key-cli", "codex-sdk"])
-  test(`real Pi ${mode} no-prompt RPC startup: only explicit guard, scoped tools, no ambient/product extension execution`, async () => {
+for (const [mode, role] of [
+  ["api-key-cli", "lead"],
+  ["api-key-cli", "ui-reviewer"],
+  ["codex-sdk", "lead"],
+  ["codex-sdk", "ui-reviewer"],
+] as const)
+  test(`real Pi ${mode} ${role} no-prompt RPC startup: only explicit guard, scoped tools, no ambient/product extension execution`, async () => {
     const f = await fixture();
     const home = join(f.dir, "pi-home"),
       agent = join(home, "controlled");
@@ -40,9 +50,6 @@ for (const mode of ["api-key-cli", "codex-sdk"])
       JSON.stringify({ extensions: [evil], defaultTools: ["bash", "write"] }),
     );
     const loadout = join(f.dir, "guard-loadout.json");
-    const entry = fileURLToPath(
-      import.meta.resolve("@earendil-works/pi-coding-agent"),
-    );
     const auth = mkdtempSync(join(tmpdir(), "jared-loadout-auth-"));
     writeFileSync(
       join(auth, "auth.json"),
@@ -96,26 +103,60 @@ tls.connect = deny;
 syncBuiltinESMExports();
 `,
     );
+    // Capture the *actual* production role policy/argv. A handwritten fixture
+    // policy missed that the bundled reviewer starts with YAML frontmatter.
+    let launch: string[] | undefined;
+    class CaptureLaunch extends PiExecutor {
+      protected override startProcess(args: string[]): OwnedProcess {
+        launch = args;
+        throw new Error("captured_without_launch");
+      }
+    }
+    const credential = join(auth, "api-key");
+    writeFileSync(credential, "synthetic-no-provider-request", {
+      mode: 0o600,
+    });
+    const executor = new CaptureLaunch(
+      mode === "codex-sdk"
+        ? {
+            jaredDir: bundledAgent(),
+            provider: "openai-codex",
+            model: "gpt-6.1-sol",
+            authSource: { kind: "dedicated", path: join(auth, "auth.json") },
+          }
+        : {
+            jaredDir: bundledAgent(),
+            provider: "openai",
+            model: "gpt-4o",
+            credentialEnv: "OPENAI_API_KEY",
+            credentialFile: credential,
+          },
+    );
+    await assert.rejects(
+      executor.run({
+        role,
+        runId: randomUUID(),
+        worktree: f.repo,
+        outputDir: join(f.dir, "captured-run"),
+        packet: neutralPacket(
+          randomUUID(),
+          f.commit,
+          "fixture",
+          "No-prompt startup probe",
+          "web",
+          "Preserve semantics",
+          "flow",
+          ["README.md"],
+        ),
+        signal: new AbortController().signal,
+        observe: () => {},
+      }),
+      /captured_without_launch/,
+    );
+    assert(launch);
     const p = new OwnedProcess(
       process.execPath,
-      [
-        "--import",
-        networkGuard,
-        ...(mode === "codex-sdk"
-          ? codexLaunchCommand()
-          : [join(dirname(entry), "bundle/cli.js")]),
-        ...auditLaunchArgs(),
-        ...(mode === "codex-sdk"
-          ? [
-              "--provider",
-              "openai-codex",
-              "--model",
-              "gpt-6.1-sol",
-              "--system-prompt",
-              "Trusted fixture system policy",
-            ]
-          : ["--provider", "openai", "--model", "gpt-4o"]),
-      ],
+      ["--import", networkGuard, ...launch],
       f.repo,
       {
         PATH: "/usr/bin:/bin",
@@ -129,13 +170,18 @@ syncBuiltinESMExports();
       },
       () => {},
     );
-    let stdout = "";
+    let stdout = "",
+      exited = false;
+    void p.exited.then(() => {
+      exited = true;
+    });
     p.child.stdout.on("data", (b) => (stdout += b.toString()));
     p.child.stderr.resume();
     try {
       p.child.stdin.write('{"type":"get_commands","id":"probe"}\n');
       await waitFor(
         () =>
+          exited ||
           stdout.split("\n").some((line) => {
             try {
               return JSON.parse(line).id === "probe";
@@ -155,7 +201,11 @@ syncBuiltinESMExports();
           }
         })
         .find((r) => r.id === "probe");
-      assert.equal(response.success, true);
+      assert.equal(
+        response?.success,
+        true,
+        `${mode}/${role} exited before the native guard handshake`,
+      );
       assert.deepEqual(
         response.data.commands.map((c: { name: string }) => c.name),
         ["jared-audit-guard-v1"],
