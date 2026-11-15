@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createConnection, type Socket } from "node:net";
+import { once } from "node:events";
 import {
   writeFileSync,
   readFileSync,
@@ -14,7 +16,7 @@ import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Client } from "@modelcontextprotocol/client";
 import { isolated, project, client, call } from "./local-fixtures.js";
-import { loadLocalConfig } from "../src/local-config.js";
+import { loadLocalConfig, socketPath } from "../src/local-config.js";
 import { startWorker } from "../src/worker.js";
 import { FakeExecutor } from "./fake-executor.js";
 import { waitFor } from "./helpers.js";
@@ -43,6 +45,7 @@ test("actual stdio clients share local worker, explicit multi-project routing, u
   Object.assign(process.env, f.env);
   let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
   const clients: Client[] = [];
+  let startupPin: Socket | undefined;
   try {
     const boot = spawnSync(
       process.execPath,
@@ -64,11 +67,20 @@ test("actual stdio clients share local worker, explicit multi-project routing, u
         return undefined;
       }),
     );
+    // Retain the explicitly injected worker until the real frontends connect.
+    // Otherwise a slow CLI import can outlast the production 1.5s idle window,
+    // restart an uninjected worker and correctly reject these unauthenticated jobs.
+    startupPin = createConnection(socketPath(loadLocalConfig()));
+    await once(startupPin, "connect");
+    // Exercise that slow-start case without changing production idle behavior.
+    await delay(2000);
     const [a, b] = await Promise.all([
       client(main, f.env, "/"),
       client(main, f.env, f.root),
     ]);
     clients.push(a, b);
+    startupPin.destroy();
+    startupPin = undefined;
     const tools = await a.listTools();
     assert.equal(tools.tools.length, 10);
     assert.equal(
@@ -125,7 +137,10 @@ test("actual stdio clients share local worker, explicit multi-project routing, u
     assert.equal(source.data.text, "# one committed only\n");
     const r1 = await call(a, "submit_job", submitArgs("one", one.commit));
     const r2 = await call(b, "submit_job", submitArgs("two", two.commit));
-    assert(!r1.error && !r2.error);
+    assert(
+      !r1.error && !r2.error,
+      JSON.stringify({ one: r1.data.error, two: r2.data.error }),
+    );
     const id1 = r1.data.jobId,
       id2 = r2.data.jobId;
     for (const name of [
@@ -217,8 +232,13 @@ test("actual stdio clients share local worker, explicit multi-project routing, u
     clients.length = 0;
     await worker.close();
     worker = await startWorker(loadLocalConfig(), new FakeExecutor());
+    startupPin = createConnection(socketPath(loadLocalConfig()));
+    await once(startupPin, "connect");
+    await delay(2000);
     const d = await client(main, f.env, "/");
     clients.push(d);
+    startupPin.destroy();
+    startupPin = undefined;
     assert.equal(
       (await call(d, "get_result", { projectId: "one", jobId: id1 })).data
         .visualVerification,
@@ -253,6 +273,7 @@ test("actual stdio clients share local worker, explicit multi-project routing, u
       '{"sentinel":"GLOBAL-SECRET-DO-NOT-IMPORT"}\n',
     );
   } finally {
+    startupPin?.destroy();
     await Promise.all(clients.map((c) => c.close()));
     await worker?.close();
     for (const key of Object.keys(process.env))

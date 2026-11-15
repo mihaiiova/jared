@@ -87,7 +87,15 @@ test("read-only integration review uses exact local commit and rejects cross-pro
     await f.service.invoke("setup_project", f.registration());
     await f.service.invoke("setup_project", f.registration("other"));
     const original = await submit(f.service, f.submission());
-    await terminal(f.service, original);
+    const originalJob = await terminal(f.service, original);
+    assert.equal(
+      originalJob.taskOutcome,
+      "delivered",
+      JSON.stringify({
+        execution: originalJob.execution,
+        diagnostic: originalJob.diagnostic,
+      }),
+    );
     const input = {
       projectId: "fixture",
       originalJobId: original,

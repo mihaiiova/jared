@@ -16,6 +16,11 @@ const schema = z.strictObject({
     stateDir: z.string(),
     pi: storedPi,
 });
+export function socketPath(c) {
+    const path = join(c.stateDir, "worker.sock");
+    requireThat(Buffer.byteLength(path) < 104, "state_path_too_long_for_unix_socket");
+    return path;
+}
 export function localPaths() {
     const configDir = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "jared-local");
     const stateDir = join(process.env.XDG_STATE_HOME || join(homedir(), ".local/state"), "jared-local");

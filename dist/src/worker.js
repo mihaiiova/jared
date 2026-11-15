@@ -1,6 +1,5 @@
 import { createServer, createConnection } from "node:net";
 import { chmodSync, lstatSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
@@ -9,32 +8,27 @@ import { AuditService } from "./service.js";
 import { PiExecutor } from "./executor.js";
 import { searchToolPath } from "./search-tools.js";
 import { bundledAgent } from "./config.js";
-import { executionConfig, loadLocalConfig, } from "./local-config.js";
+import { executionConfig, loadLocalConfig, socketPath, } from "./local-config.js";
 import { createMcpServer } from "./mcp.js";
 import { noSymlinks, pathExists } from "./safety.js";
 import { ServiceError, requireThat } from "./contracts.js";
-export function socketPath(c) {
-    const path = join(c.stateDir, "worker.sock");
-    requireThat(Buffer.byteLength(path) < 104, "state_path_too_long_for_unix_socket");
-    return path;
-}
+export { socketPath } from "./local-config.js";
 /** Test injection is a function argument only, never a CLI flag, config or environment switch. */
 export async function startWorker(c, executor) {
     const path = socketPath(c);
     const service = await AuditService.open({
         root: c.stateDir,
-        executor: executor ??
-            new PiExecutor({ ...c.pi, jaredDir: bundledAgent() }, c.stateDir),
+        executor: executor ?? new PiExecutor({ ...c.pi, jaredDir: bundledAgent() }),
         checkReady: executor
             ? undefined
             : () => {
                 const current = loadLocalConfig();
                 executionConfig(current);
                 try {
-                    searchToolPath(current.stateDir);
+                    searchToolPath();
                 }
                 catch {
-                    throw new ServiceError("file_search_helpers_missing_run_jared_setup");
+                    throw new ServiceError("packaged_search_tools_unavailable_reinstall_jared");
                 }
             },
     });

@@ -14,7 +14,9 @@ import type { Executor } from "../src/executor.js";
 import { FakeExecutor } from "./fake-executor.js";
 export async function fixture(
   executor: Executor = new FakeExecutor(),
-  timeoutMs = 10000,
+  // Match the production whole-job budget. Non-deadline tests must not expire
+  // while native Git is preparing their fixtures; deadline tests override this.
+  timeoutMs = 120000,
 ) {
   const dir = mkdtempSync(join(tmpdir(), "jared-service-"));
   const repo = join(dir, "fixture");
@@ -95,7 +97,7 @@ export async function fixture(
 }
 export async function waitFor(
   check: () => boolean | Promise<boolean>,
-  timeout = 20000,
+  timeout = 60000,
 ) {
   const start = Date.now();
   while (!(await check())) {
@@ -103,9 +105,14 @@ export async function waitFor(
     await delay(15);
   }
 }
-export async function terminal(service: AuditService, id: string) {
+export async function terminal(
+  service: AuditService,
+  id: string,
+  timeout = 60000,
+) {
   await waitFor(
     () => !["queued", "running"].includes(service.store.job(id).execution),
+    timeout,
   );
   return service.store.job(id);
 }

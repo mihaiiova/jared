@@ -69,11 +69,18 @@ test("fetch exact full SHA, reject missing SHA/ref injection and implementation 
 test("bounded concurrency 2 and conservative per-project serialization", async () => {
   let count = 0,
     max = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const executor = new FakeExecutor(async () => {
     count++;
     max = Math.max(max, count);
-    await delay(160);
-    count--;
+    try {
+      await gate;
+    } finally {
+      count--;
+    }
     return undefined;
   });
   const f = await fixture(executor);
@@ -86,13 +93,22 @@ test("bounded concurrency 2 and conservative per-project serialization", async (
       ["b", "one"],
       ["c", "two"],
       ["d", "three"],
-    ])
+    ]) {
       ids.push(await submit(f.service, f.submission(key, project)));
+      // Caller pacing must not decide whether executor phases overlap.
+      await delay(1000);
+    }
+    await waitFor(() => count >= 2);
+    assert.equal(count, 2);
+    assert.equal(f.service.store.job(ids[1]).execution, "queued");
+    assert.equal(f.service.store.job(ids[3]).execution, "queued");
+    release();
     const jobs = await Promise.all(ids.map((id) => terminal(f.service, id)));
     assert(jobs.every((j) => j.taskOutcome === "delivered"));
     assert.equal(max, 2);
     assert(jobs[1].startedAt! >= jobs[0].endedAt!);
   } finally {
+    release();
     await f.service.close();
   }
 });
@@ -241,12 +257,17 @@ test("cancel and deadline wait for executor stop; preserve workspaces; queued ca
     c.signal.throwIfAborted();
     return undefined;
   });
-  const f = await fixture(executor, 2000);
+  // This is an end-to-end deadline covering native Git preparation too.
+  // Leave room for slow hosted runners and caller latency before testing cancel;
+  // the final job still exercises the real deadline and owned-child settlement.
+  const f = await fixture(executor, 30000);
   try {
     await f.service.invoke("setup_project", f.registration());
     const a = await submit(f.service, f.submission("a"));
-    const b = await submit(f.service, f.submission("b"));
     await waitFor(() => started === 1);
+    // Model a slow caller between executor readiness and queued cancellation.
+    await delay(2100);
+    const b = await submit(f.service, f.submission("b"));
     await f.service.invoke("cancel_job", { projectId: "fixture", jobId: b });
     assert.equal(f.service.store.job(b).execution, "cancelled");
     const cancellation = (await f.service.invoke("cancel_job", {
@@ -258,7 +279,7 @@ test("cancel and deadline wait for executor stop; preserve workspaces; queued ca
     assert(!groupAlive(groups[0]));
     assert(existsSync(join(f.options.root, "jobs", a, "worktree")));
     const c = await submit(f.service, f.submission("c"));
-    assert.equal((await terminal(f.service, c)).execution, "timed_out");
+    assert.equal((await terminal(f.service, c, 60000)).execution, "timed_out");
     assert.equal(stopped, 2);
     assert(groups.every((g) => !groupAlive(g)));
   } finally {

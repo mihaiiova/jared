@@ -1,200 +1,85 @@
-import { constants, copyFileSync, linkSync, lstatSync, mkdtempSync, realpathSync, rmSync, statSync, unlinkSync, } from "node:fs";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { homedir } from "node:os";
-import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { ensurePrivateDirectory } from "./local-config.js";
-import { outsideCheckouts, privateDirectory } from "./operator-paths.js";
-import { noSymlinks, pathExists } from "./safety.js";
+import { lstatSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { z } from "zod";
+import { repositoryRoot } from "./config.js";
 import { requireThat } from "./contracts.js";
-const tools = ["fd", "rg"];
+import { noSymlinks } from "./safety.js";
 export const systemPath = "/usr/bin:/bin";
-export function searchBin(stateDir) {
-    privateDirectory(stateDir);
-    const root = join(stateDir, "search-tools");
-    privateDirectory(root);
-    return privateDirectory(join(root, "bin"));
+export const runtimeTargets = [
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-arm64",
+    "linux-x64",
+];
+const entrySchema = z.strictObject({
+    version: z.string(),
+    file: z.string(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    archiveUrl: z.string().url(),
+    archiveSha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+const manifestSchema = z.strictObject({
+    schemaVersion: z.literal(1),
+    targets: z.record(z.string(), z.strictObject({ fd: entrySchema, rg: entrySchema })),
+    licenses: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)),
+});
+export function runtimeTarget(platform = process.platform, arch = process.arch) {
+    const target = `${platform}-${arch}`;
+    requireThat(runtimeTargets.includes(target), "unsupported_runtime_target");
+    return target;
 }
-/** Read-only, identical resolution for doctor and worker; no PATH discovery here. */
-export function searchToolPath(stateDir) {
-    const bin = searchBin(stateDir);
-    for (const tool of tools)
-        validateManagedBinary(join(bin, tool));
-    return `${bin}:${systemPath}`;
-}
-function validateManagedBinary(path) {
-    noSymlinks(path);
-    const st = lstatSync(path);
-    requireThat(st.isFile() &&
-        st.nlink === 1 &&
-        st.uid === process.getuid?.() &&
-        (st.mode & 0o022) === 0 &&
-        (st.mode & 0o111) !== 0, "unsafe_managed_search_tool");
-}
-/** Binary-only import: never read any Pi auth/settings/resources. */
-function safeBinary(path) {
-    requireThat(isAbsolute(path) && resolve(path) === path, "absolute_tool_required");
-    outsideCheckouts(path);
-    const canonical = realpathSync(path);
-    outsideCheckouts(canonical);
-    noSymlinks(canonical);
-    const parents = [];
-    for (let p = dirname(canonical);; p = dirname(p)) {
-        parents.unshift(p);
-        if (dirname(p) === p)
-            break;
+// Explicit root/target parameters are developer test/build seams, never CLI,
+// environment or project configuration. Production always uses its own package.
+export function packagedSearchTools(root = repositoryRoot(), target = runtimeTarget()) {
+    requireThat(runtimeTargets.includes(target), "unsupported_runtime_target");
+    const base = noSymlinks(join(root, "vendor/tools"));
+    const manifestPath = noSymlinks(join(base, "manifest.json"));
+    const manifestFile = lstatSync(manifestPath);
+    requireThat(manifestFile.isFile() &&
+        manifestFile.nlink === 1 &&
+        (manifestFile.uid === 0 || manifestFile.uid === process.getuid?.()) &&
+        (manifestFile.mode & 0o022) === 0 &&
+        manifestFile.size > 0 &&
+        manifestFile.size <= 64 * 1024, "unsafe_runtime_tool_manifest");
+    const manifest = manifestSchema.parse(JSON.parse(readFileSync(manifestPath, "utf8")));
+    const selected = manifest.targets[target];
+    requireThat(selected, "packaged_search_tools_missing_reinstall_jared");
+    const bin = join(base, target);
+    const result = { bin, fd: join(bin, "fd"), rg: join(bin, "rg") };
+    for (const tool of ["fd", "rg"]) {
+        requireThat(selected[tool].file === `${target}/${tool}`, "invalid_packaged_tool_path");
+        const path = noSymlinks(result[tool]);
+        const st = lstatSync(path);
+        requireThat(st.isFile() &&
+            st.nlink === 1 &&
+            (st.uid === 0 || st.uid === process.getuid?.()) &&
+            (st.mode & 0o022) === 0 &&
+            (st.mode & 0o111) !== 0 &&
+            st.size > 0 &&
+            st.size <= 32 * 1024 * 1024, "unsafe_packaged_search_tool");
+        requireThat(createHash("sha256").update(readFileSync(path)).digest("hex") ===
+            selected[tool].sha256, "packaged_search_tool_checksum_mismatch");
     }
-    let privateBoundary = false;
-    for (const p of parents) {
-        const st = statSync(p);
-        // Once an owned private directory excludes other users, group permissions
-        // below it cannot expose the binary. This accepts normal Pi caches inside
-        // a private HOME without weakening checks on public/shared ancestors.
-        requireThat((st.uid === 0 || st.uid === process.getuid?.()) &&
-            (privateBoundary ||
-                (st.mode & 0o022) === 0 ||
-                (st.uid === 0 && (st.mode & 0o1000) !== 0)), "unsafe_tool_parent");
-        if (st.uid === process.getuid?.() && (st.mode & 0o077) === 0)
-            privateBoundary = true;
-    }
-    const st = statSync(canonical);
-    requireThat(st.isFile() &&
-        (st.uid === 0 || st.uid === process.getuid?.()) &&
-        (st.mode & 0o022) === 0 &&
-        (st.mode & 0o111) !== 0 &&
-        st.size > 0, "unsafe_search_tool");
-    return canonical;
+    return result;
 }
-function existingBinary(tool) {
-    const names = tool === "fd" ? ["fd", "fdfind"] : ["rg"];
-    const pi = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi/agent");
-    const dirs = [...(process.env.PATH || "").split(delimiter), join(pi, "bin")];
-    for (const dir of dirs)
-        for (const name of names) {
-            try {
-                return safeBinary(join(dir, name));
-            }
-            catch {
-                /* Skip unsafe/missing candidates. */
-            }
-        }
-    return undefined;
+export function searchToolPath() {
+    return `${packagedSearchTools().bin}:${systemPath}`;
 }
-function cacheBinary(source, bin, tool) {
-    const target = join(bin, tool);
-    if (pathExists(target))
-        return; // Never replace a prior cache entry, including unsafe ones.
-    const temp = mkdtempSync(join(dirname(bin), "copy-"));
-    try {
-        const staged = join(temp, tool);
-        copyFileSync(safeBinary(source), staged, constants.COPYFILE_EXCL);
-        const identity = lstatSync(staged);
-        let published = false;
-        // Publish a complete file exclusively; concurrent setup cannot overwrite it.
-        try {
-            linkSync(staged, target);
-            published = true;
-        }
-        catch (e) {
-            if (e.code !== "EEXIST")
-                throw e;
-        }
-        unlinkSync(staged);
-        return published
-            ? { path: target, dev: identity.dev, ino: identity.ino }
-            : undefined;
+/** Setup/doctor only: run pinned binaries with no auth or global Pi resources. */
+export function verifySearchTools() {
+    const tools = packagedSearchTools();
+    for (const tool of ["fd", "rg"]) {
+        const result = spawnSync(tools[tool], ["--version"], {
+            env: { PATH: systemPath, LANG: "C" },
+            encoding: "utf8",
+            timeout: 5000,
+            maxBuffer: 4096,
+        });
+        requireThat(result.status === 0 &&
+            !result.error &&
+            result.stdout.startsWith(tool === "rg" ? "ripgrep " : "fd "), "packaged_search_tool_execution_failed");
     }
-    finally {
-        rmSync(temp, { recursive: true, force: true });
-    }
-}
-export function searchHelperArgs() {
-    const js = fileURLToPath(new URL("./search-tools-helper.js", import.meta.url));
-    return pathExists(js)
-        ? [js]
-        : [
-            "--import",
-            import.meta.resolve("tsx"),
-            fileURLToPath(new URL("./search-tools-helper.ts", import.meta.url)),
-        ];
-}
-export function searchHelperEnv(home, agent, bin, download) {
-    return {
-        HOME: home,
-        PI_CODING_AGENT_DIR: agent,
-        PATH: `${bin}:${systemPath}`,
-        LANG: "C.UTF-8",
-        ...(download ? {} : { PI_OFFLINE: "1" }),
-    };
-}
-/** Public native tool execution in a disposable private fixture; never a session/model. */
-export function runSearchPreparation(fixture, bin, download) {
-    const result = spawnSync(process.execPath, searchHelperArgs(), {
-        cwd: fixture,
-        env: searchHelperEnv(join(fixture, "home"), join(fixture, "pi"), bin, download),
-        timeout: 180_000,
-        maxBuffer: 8192,
-        stdio: ["ignore", "pipe", "pipe"],
-    });
-    requireThat(result.status === 0, "native_search_preparation_failed_rerun_setup");
-}
-export async function prepareSearchTools(stateDir, ask, hooks = {}) {
-    privateDirectory(stateDir);
-    const root = ensurePrivateDirectory(join(stateDir, "search-tools"));
-    const bin = ensurePrivateDirectory(join(root, "bin"));
-    const created = [];
-    const cache = (source, tool) => {
-        const entry = cacheBinary(source, bin, tool);
-        if (entry)
-            created.push(entry);
-    };
-    let fixture;
-    try {
-        for (const tool of tools) {
-            if (pathExists(join(bin, tool))) {
-                validateManagedBinary(join(bin, tool));
-                continue;
-            }
-            const source = (hooks.discover ?? existingBinary)(tool);
-            if (source)
-                cache(source, tool);
-        }
-        const missing = tools.filter((tool) => !pathExists(join(bin, tool)));
-        const download = missing.length > 0;
-        if (download &&
-            !(await ask(`File-search helpers missing: ${missing.join(", ")}. Allow bundled Pi to download only missing helpers into private Jared state (up to 180 seconds; no login/model/registration permission)?`)))
-            return false;
-        fixture = mkdtempSync(join(root, "prepare-"));
-        (hooks.prepare ?? runSearchPreparation)(fixture, bin, download);
-        for (const tool of missing) {
-            const downloaded = join(fixture, "pi/bin", tool);
-            // Pi may have found an existing system tool instead of downloading.
-            const source = pathExists(downloaded)
-                ? downloaded
-                : (hooks.discover ?? existingBinary)(tool);
-            requireThat(source, "search_tool_missing_rerun_setup");
-            cache(source, tool);
-        }
-        searchToolPath(stateDir);
-        return true;
-    }
-    catch (error) {
-        // Roll back only our own publications, never a pre-existing/concurrent entry.
-        for (const entry of created) {
-            try {
-                const current = lstatSync(entry.path);
-                if (current.dev === entry.dev && current.ino === entry.ino)
-                    unlinkSync(entry.path);
-            }
-            catch (cleanupError) {
-                if (cleanupError.code !== "ENOENT")
-                    throw cleanupError;
-            }
-        }
-        throw error;
-    }
-    finally {
-        if (fixture)
-            rmSync(fixture, { recursive: true, force: true });
-    }
+    return tools;
 }

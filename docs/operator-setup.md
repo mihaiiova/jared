@@ -1,18 +1,16 @@
-# Local setup
+# Local operator details
 
-## File-search helpers and internet
+## Included runtime tools
 
-`jared setup` reuses executable `fd`/`fdfind` and `rg` from setup PATH or `${PI_CODING_AGENT_DIR:-~/.pi/agent}/bin`. It imports **only the binaries**, not global credentials/config/resources. Safe owner-controlled, non-group/world-writable executables are copied into private `state/search-tools/bin` and never replaced on repeated setup. Jobs and both roles share this cache while retaining separate HOME/Pi resource directories; worker PATH is only the managed bin plus `/usr/bin:/bin`.
+Install from Git with npm as shown in the README. Node >=22.19 and system Git remain prerequisites. Pi and native `fd`/`rg` binaries for macOS/Linux x64/ARM64 are included. Linux ARM64's ripgrep is a GNU libc build; Alpine ARM64 is not supported by this bundle.
 
-When a helper is missing, setup asks separately before bundled Pi's native find/grep tools provision it in a disposable private fixture. Preparation is bounded to 180 seconds, invokes no session/model/provider, and publishes only validated executables into the managed cache. No custom downloader, sudo or apt step is required. Noninteractive setup never approves downloads; missing helpers report blocked status and a nonzero exit. Rerun `jared setup` interactively and approve the helper-only prompt, or make existing safe executables available on setup PATH/Pi bin and rerun. Failed preparation removes only cache entries published by that setup attempt, so rerunning setup can rediscover working helpers. Pre-existing failed/unsafe entries are not overwritten or removed automatically: inspect the private `search-tools/bin` entries with workers stopped before repairing them.
+Setup configures authentication and client registration, not helpers. Search tools are resolved only from this installation's `vendor/tools/<OS>-<CPU>/` directory, with pinned checksums, file-safety checks and upstream licenses. No host PATH/Pi cache discovery, executable copying, helper downloads or mutable managed cache is used. Both roles receive that package directory plus `/usr/bin:/bin` as their search PATH.
 
-Native find **and** grep run against a tiny private fixture during setup. Reused tools are checked with automatic downloads disabled. Doctor only checks file safety for the same managed executables used by workers, not whether they function: it never provisions, runs tools, refreshes auth, accesses a provider or connects a client. Submission rejects missing/unsafe helpers with `file_search_helpers_missing_run_jared_setup`.
+Setup and doctor execute the packaged tools' `--version` with bounded, credential-free subprocesses. Actual Pi find/grep operation is covered by the native and install tests. Doctor does not download, refresh auth, call a model or connect an MCP client. A missing/corrupt package is repaired by reinstalling, not rerunning helper setup; submissions fail with `packaged_search_tools_unavailable_reinstall_jared`.
 
-`PI_OFFLINE=1` in Pi suppresses automatic model-catalog/tool downloads; it **does not block model/provider requests**. Production Jared's API-key CLI workers use `--offline` to disable startup network operations and automatic helper downloads without blocking inference. The selected Codex SDK runtime deliberately disables catalog discovery/availability network checks (`allowModelNetwork:false`, selected-provider-only refresh guard), not model inference or native OAuth refresh. Audits require internet for the selected provider. Source-only tool restrictions prohibit agent-directed network tools, not the host's provider transport. Test/preparation verification may explicitly suppress downloads. Helper-download permission, login/shared-auth-write consent and registration consent are separate; `--no-login --no-register` never grants any of them.
+`PI_OFFLINE=1` and the API-key worker's `--offline` suppress automatic catalog/tool downloads, **not provider inference**. The Codex SDK disables catalog discovery/availability network checks, not selected-provider calls or OAuth refresh. Audits require internet for the selected provider. Login/shared-auth-write consent and client-registration consent remain separate; `--no-login --no-register` grants neither.
 
 ## Configuration and selected auth
-
-# Local operator details
 
 The normal interface is `jared setup`, `jared doctor`, `jared mcp`. There is no manual JSON configuration step. This WIP package accepts Linux and macOS with Node >=22.19 and system `/usr/bin/git`. Ownership uses Node's SQLite OS locks, not `flock`. Linux process inspection uses `/proc`; macOS uses `/bin/ps` and `/usr/sbin/sysctl`. Native macOS verification is pending. Windows is unsupported. Use a private local filesystem, not NFS. On macOS, install Apple's command-line tools if system Git is missing (`xcode-select --install`).
 
@@ -20,14 +18,14 @@ Before upgrading an older Linux installation, stop its Jared jobs/workers: the o
 
 ## One-time setup
 
-1. Install the locally built tarball as described in README. `jared --help` needs no configuration.
+1. Install from Git (or a locally built tarball) as described in README. `jared --help` needs no configuration. Restart clients after upgrading so an old worker does not keep using the previous implementation.
 2. Run `jared setup` in a terminal. It creates private user directories, keeps existing configuration/auth, and offers to reuse your existing Pi login with explicit consent. If missing, one bundled Pi **1.5.2 SDK** login step is offered; standalone Pi is not required. Default provider/model come from bundled native settings, not a new model choice. No model prompt is sent; login itself contacts the provider only after consent.
 3. Setup previews the exact Pi command using this installation's absolute Node/CLI paths:
    `pi mcp add jared -- /absolute/node /absolute/package/dist/src/main.js mcp`.
    It runs only after interactive consent, using Pi's actual documented CLI. It does not replace an existing Jared registration. Restart Pi; use `/mcp` to check connection. `pi mcp list` connects **all** configured servers and is deliberately not run by doctor.
 4. Ask the coding agent to read `get_jared_guide` and explicitly identify the Git root and commit. Setup does **not** onboard or audit a live project itself.
 
-For discovery without login or registration: `jared setup --no-login --no-register`. These flags suppress auth and client-registration changes, **not helper-download prompts**. Interactive setup can still ask to download missing `fd`/`rg`; decline for a no-download run. Noninteractive setup (`jared setup --no-login --no-register </dev/null`) never consents to downloads and reports missing helpers instead. No browser installation is performed. Audits return `authentication_missing_or_invalid_run_jared_setup` until valid selected credentials exist. `setup_project` and exact source-context reads do not require a provider.
+For discovery without login or registration: `jared setup --no-login --no-register`. The installed tools are ready without a helper cache or download consent, including in noninteractive execution. No browser installation is performed. Audits return `authentication_missing_or_invalid_run_jared_setup` until valid selected credentials exist. `setup_project` and exact source-context reads do not require a provider.
 
 Pi is the supported guided registration client. Doctor detects Pi/Claude/Codex executables without connecting them. For Claude/Codex or another MCP client, configure a stdio command `jared` with argument `mcp` using that client's own interface; no automatic edits or claims of a verified connection are made. Setup always prints Pi's explicit opt-in command unless `--no-register` was requested.
 
@@ -72,7 +70,7 @@ Jobs persist after MCP disconnect. A private worker starts automatically and exi
 
 ## Repair and migration
 
-Run doctor first; it never refreshes credentials or spends on a provider. Credential presence is not entitlement/model verification. Git remains a system prerequisite; `flock` is no longer required. For missing file-search helpers, rerun setup; doctor uses the shared managed cache and never downloads. For an existing OpenAI/Anthropic API-key configuration with missing or invalid auth, restore its selected private `credentialFile` for `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` and rerun setup; a Pi OAuth login cannot repair an API-key configuration.
+Run doctor first; it never refreshes credentials or spends on a provider. Credential presence is not entitlement/model verification. Git remains a system prerequisite; `flock` is no longer required. For missing, modified or non-executable packaged tools, reinstall the supported Git ref and restart MCP clients; doctor uses package-owned binaries and never downloads. The obsolete state/search-tools cache is retained but ignored; do not delete unrelated state, credentials or retained audit evidence. For an existing OpenAI/Anthropic API-key configuration with missing or invalid auth, restore its selected private `credentialFile` for `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` and rerun setup; a Pi OAuth login cannot repair an API-key configuration.
 
 Before changing an auth source, setup takes the existing worker ownership lock. If a worker is active, setup fails clearly: cancel known jobs, close clients and wait for its socket to exit, then rerun. It never kills unrelated processes or resets state. No config change is made on this refusal.
 

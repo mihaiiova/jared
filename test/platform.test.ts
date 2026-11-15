@@ -47,6 +47,22 @@ test("Darwin ps identity parsing retains start time, group and zombie state", ()
     /process_inspection_failed/,
   );
 });
+test("Darwin unknown process states remain conservatively alive instead of breaking inspection", () => {
+  // Apple's ps/tasks.c maps unknown Mach thread states to '?'. This can
+  // appear transiently while enumerating processes during exits.
+  assert.deepEqual(parseDarwinProcess("Mon Nov 9 12:34:56 2026 123 ?s"), {
+    start: "Mon Nov 9 12:34:56 2026",
+    group: 123,
+    state: "?",
+  });
+  assert.equal(parseProcessGroups("0 ?\n123 S+\n456 ?s\n", 123), true);
+  assert.equal(parseProcessGroups("123 ?s\n", 123), true);
+  assert.equal(parseProcessGroups("123 Z\n456 ?s\n", 123), false);
+  assert.throws(
+    () => parseProcessGroups("123 \n", 123),
+    /process_inspection_failed/,
+  );
+});
 test("receipts distinguish altered identities without signalling them", () => {
   const r = receipt(process.pid);
   assert.equal(sameProcess(r), true);

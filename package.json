@@ -1,6 +1,6 @@
 {
   "name": "@jared-local/cli",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,7 +8,9 @@
   },
   "scripts": {
     "dev": "tsx src/main.ts",
-    "build:local": "node scripts/assets.mjs && node scripts/build.mjs",
+    "build:local": "node scripts/assets.mjs && node scripts/verify-runtime-tools.mjs && node scripts/build.mjs",
+    "vendor:verify": "node scripts/verify-runtime-tools.mjs",
+    "vendor:refresh": "node scripts/vendor-tools.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test --test-concurrency=1 test/*.test.ts",
     "smoke": "tsx --test test/local-mcp.test.ts",
@@ -37,8 +39,9 @@
   "files": [
     "dist/src/**",
     "agent/v1/**",
+    "vendor/tools/**",
     "README.md",
-    "docs/**",
+    "docs/*.md",
     "npm-shrinkwrap.json"
   ]
 }

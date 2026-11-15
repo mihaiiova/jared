@@ -33,6 +33,14 @@ const schema = z.strictObject({
   pi: storedPi,
 });
 export type LocalConfig = z.infer<typeof schema>;
+export function socketPath(c: LocalConfig) {
+  const path = join(c.stateDir, "worker.sock");
+  requireThat(
+    Buffer.byteLength(path) < 104,
+    "state_path_too_long_for_unix_socket",
+  );
+  return path;
+}
 export function localPaths() {
   const configDir = join(
     process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),

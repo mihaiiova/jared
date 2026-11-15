@@ -1,85 +1,86 @@
 # Jared — WIP
 
-> **Work in progress.** Experimental software, not a production-ready release. Linux and macOS code paths are implemented; native macOS verification is still pending.
+Jared is a local UI/source-audit agent exposed through a CLI and stdio MCP. Your coding agent gives it an exact local Git commit; Jared runs an audit and a fresh independent review, then saves reports in that project's `.jared/runs/`.
 
-Jared provides exact-commit **source audits** with a fresh independent UI reviewer. One local installation serves multiple Git projects and coding agents. Implementation jobs and visual/runtime verification are **not supported** yet.
+> Work in progress. Source audits only: no implementation jobs or rendered UI/runtime verification. Linux regression coverage is available; native Mac behavior must be checked against the actual CI/user results for the installed commit.
 
-## Platform status
+## Install
 
-| Platform | Status                                                                                 |
-| -------- | -------------------------------------------------------------------------------------- |
-| Linux    | Locally regression-tested; Node >=22.19 and system Git required                        |
-| macOS    | Experimental; Node >=22.19, system Git, `ps` and `sysctl`; native verification pending |
-| Windows  | Unsupported                                                                            |
-
-Ownership uses SQLite's crash-released OS locks, not `flock`. macOS uses system `ps` and `sysctl` instead of Linux `/proc`. macOS CI covers both Apple Silicon and Intel runners once this source is hosted and the workflow runs; the workflow file alone is not evidence of success.
-
-**macOS crash safety:** normal cancellation stops owned process groups. After a hard worker crash, a new owner does not signal a still-live orphan from a previous owner: `ps` start times have insufficient precision to rule out PID reuse. Such jobs remain `stop_unconfirmed` with evidence retained; orphaned source reads block new work. Inspect and stop the actual orphan, then restart the **internal worker**, not just the MCP client, to reconcile dead groups. Follow the [operator recovery procedure](docs/operator-setup.md#recovering-retained-orphan-processes). Do not blindly kill a stored PID or delete state to bypass this safeguard.
-
-**Upgrading an older Linux installation:** stop its existing Jared workers and jobs before installing this revision. Old `flock` workers do not participate in the new ownership lock; do not run both versions against the same state.
-
-## Install from Git
-
-Install the current default-branch version directly from GitHub:
+Requires **Node >=22.19 and system Git**. On macOS, `/usr/bin/git` must work; install Apple's command-line tools if needed. Windows is unsupported.
 
 ```sh
-npm install --global 'git+https://github.com/mihaiiova/jared.git'
+npm install -g git+https://github.com/mihaiiova/jared.git
 jared setup
 jared doctor
 ```
 
-For a repeatable install, append `#FULL_COMMIT_SHA` to the Git URL. The repository includes the generated JavaScript CLI, so installation does not need TypeScript or a Git preparation build. Real isolated global installs from local Git content and the pushed GitHub fix branch pass on Linux/npm 10.9.8, including MCP runtime imports. Native Mac execution remains unverified.
+To install a particular candidate or version, append `#BRANCH_OR_FULL_COMMIT_SHA` to the Git URL. There is no npm registry release.
 
-Maintainers: `npm run build:local` regenerates `dist/src/`; commit those runtime files with their TypeScript changes. CI rebuilds and checks for drift (including untracked modules), then exercises a real Git-based global install from committed content. Do not add npm lifecycle hooks or a script named `build` without rerunning that test: npm 10's Git preparation can inherit global installation settings and fail to install build dependencies in its temporary checkout.
+**The installation includes Pi, Jared's agent assets, and `fd`/`rg` binaries.** There is no Docker requirement, standalone Pi requirement, search-helper download prompt, Homebrew helper prerequisite or user-managed helper cache. Node and Git are installation/system prerequisites, not duplicated inside the package.
 
-## Install from a source checkout
+Supported runtime bundles:
 
-No npm publication or standalone Pi installation is required. Use Node **>=22.19** (for example via your preferred Node version manager) and system Git. On macOS, install Apple's command-line tools with `xcode-select --install` if Git is unavailable. `jared setup` handles file-search helpers (`fd`/`fdfind` and `rg`); no apt fd prerequisite. Windows is unsupported. From this checkout:
+| Target              | Packaged search tools                                       |
+| ------------------- | ----------------------------------------------------------- |
+| macOS Apple Silicon | fd 10.3.0, ripgrep 15.1.0                                   |
+| macOS Intel         | fd 10.3.0, ripgrep 15.1.0                                   |
+| Linux x64           | fd 10.3.0, ripgrep 15.1.0; musl builds                      |
+| Linux ARM64         | fd 10.3.0; ripgrep 15.1.0 GNU libc build (not Alpine ARM64) |
+
+All four targets ship together so Git installation needs no preparation/build hook. These are pinned upstream release binaries, with archive/file checksums and licenses under `vendor/tools/`. Bundling is not proof of native execution on every target; check CI and verification evidence.
+
+## Setup once
+
+`jared setup` verifies the packaged tools, then offers:
+
+1. Reuse an existing Pi Codex login with explicit shared-refresh consent, or sign in through bundled Pi. Credentials are not copied. Advanced dedicated credentials and explicit OpenAI/Anthropic API-key files are also supported.
+2. Preview and optionally register Jared with Pi. No client settings change without consent.
+
+Model access and billing remain your provider's responsibility. Credential presence is not live provider verification. Setup does not run an audit or spend on inference.
+
+Restart your coding client after installation or upgrade. For another MCP client, configure a stdio server with command `jared` and argument `mcp`. See [operator details](docs/operator-setup.md).
+
+Bootstrap without login or registration:
 
 ```sh
-npm ci --ignore-scripts
-npm run build:local
-npm pack
-npm install --global ./jared-local-cli-0.2.2.tgz
+jared setup --no-login --no-register
 ```
 
-The shipped `npm-shrinkwrap.json` pins the dependency tree for packed installs. The package name is `@jared-local/cli`, **not a published npm release**. `private: true` prevents accidental npm registry publication; it does not prevent installation from Git. Native policies, six skills and reviewer definitions ship inside it; no sibling checkout or Faur is needed.
+This needs no tool downloads. Discovery and project registration can work without model credentials; audits remain blocked until selected authentication is available.
 
-## Set up once
+## Use from your coding agent
 
-```sh
-jared setup
-```
+Open your app's Git repository and ask:
 
-Setup first offers to **reuse your Pi login** for bundled `openai-codex/gpt-6.1-sol`, with explicit consent to refresh that same shared auth file. Without a login it offers one bundled Pi SDK sign-in step; no standalone Pi install is needed. Valid existing choices are preserved. `--dedicated` is optional advanced isolation. Setup then previews an opt-in Pi registration command; client settings never change without consent. No credentials are copied and no global Pi settings/resources are loaded. Bootstrap without login/registration: `jared setup --no-login --no-register` (discovery works; audits stay blocked). Setup reuses existing file-search executables, including the Pi bin cache, or asks before bundled Pi downloads missing helpers. This separate permission never grants auth or registration consent.
+> Read Jared's `get_jared_guide`. Register this explicitly identified Git root, then audit its current committed HEAD. Don't modify product source.
 
-Coding agents launch **`jared mcp`** over stdio automatically after registration. There is no HTTP listener, token, admin role, deploy key, remote Git or tunnel to configure. Other MCP clients can launch the same command; see [setup details](docs/operator-setup.md).
+MCP does not automatically pass the caller's repository to Jared. Every registration/task/result lookup names its project. Exact commits already present locally are supported, including unpushed commits. Dirty/uncommitted changes are preserved but excluded from the audited snapshot.
 
-## Ask your coding agent
+`setup_project` explicitly writes `.jared/config.json`, `.jared/.gitignore` and `.jared/runs/`. Reports are private and project-local. Registration is not an audit; successful registration does not prove model execution.
 
-> Read Jared's `get_jared_guide`. Set it up in this explicitly identified local Git root, then audit this full local commit. Don't modify product source.
+## Upgrade and troubleshooting
 
-`setup_project` is a write action: it registers the explicit canonical Git root and creates `.jared/config.json`, `.jared/.gitignore` and ignored `.jared/runs/`. Reports go to **that project's** `.jared/runs/<jobId>/`. Existing conflicts/symlinks are refused. Unpushed commits work; dirty originals are excluded and preserved. Every task/lookup names its project. Local clients have same-user operator authority, **not multi-tenant isolation**.
+Reinstall the desired Git ref, then restart Jared's MCP clients so old workers can exit. Selected configuration/authentication and retained reports are preserved. The old `state/search-tools` cache is no longer consulted, copied or automatically deleted.
+
+If packaged tools are missing, modified or cannot execute, **reinstall Jared**; rerunning setup cannot repair package files. Doctor verifies their checksums, ownership/modes and native version execution without downloading anything or connecting to a model.
+
+macOS process start times lack enough precision for speculative orphan termination after a hard worker crash. Unconfirmed jobs/evidence remain retained. Follow the [operator recovery procedure](docs/operator-setup.md#recovering-retained-orphan-processes), not broad process killing or state deletion. Before upgrading an older Linux `flock` installation, stop its jobs/workers; old/new ownership protocols do not coordinate.
 
 ## Develop Jared
 
-There is one repository and one development workspace, `jared/`:
+This repository is the sole `jared/` development workspace. Run your normal coding agent here; `AGENTS.md` contains contributor instructions. The nested `agent/v1/.pi/` files are bundled product assets, not the development agent's persona. Faur and a sibling design checkout are not runtime/build prerequisites.
 
 ```sh
-git clone https://github.com/mihaiiova/jared.git
-cd jared
-pi
+npm ci --ignore-scripts
+npm run typecheck
+npm test
+npm pack --dry-run
 ```
 
-Run your normal coding agent at the repository root. Its contributor instructions are in `AGENTS.md`; the root does not load Jared's runtime persona. The installed audit-agent definitions live under `agent/v1/.pi/` and are bundled product assets, not maintainer instructions. No separate original agent-design workspace or `jared-service/` directory is needed. Build, test and maintain the CLI here, as with Toad and Faur. Existing Pi sessions keep their loaded instructions, so start a fresh session after changing workspaces.
+For a local tarball install, run `npm run build:local`, then `npm pack`, then `npm install -g ./jared-local-cli-0.3.0.tgz`.
 
-See [contributor guidance](AGENTS.md) for checks and generated-runtime requirements.
+Commit generated `dist/src/` with TypeScript changes. `npm run vendor:verify` checks all packaged binaries/licenses without downloading or executing foreign-platform tools; `npm run vendor:refresh` is an explicit maintainer-only refresh of pinned upstream archives. No install or setup lifecycle invokes it.
 
-## Check status
+After committing a candidate, `npm run test:git-install` tests actual installation from committed Git content. CI rebuilds, detects generated/runtime drift and tests each platform without installing host `fd` or `rg`.
 
-```sh
-jared doctor
-jared --help
-```
-
-Doctor is read-only/no-network and exits nonzero for missing requirements or auth. Credential presence, client registration, connection and provider verification are distinct; it makes no provider call. Audit agents need internet for their selected provider; there is no “offline agent” mode. Jobs survive client disconnect; source snapshots/evidence remain private and retained until explicit safe cleanup. See [security/lifecycle and migration](docs/security-and-lifecycle.md) and [developer verification](docs/verification.md).
+See [security and lifecycle](docs/security-and-lifecycle.md) and [verification](docs/verification.md). Local MCP clients have same-user authority, not multi-tenant isolation. Keep credentials, reports and snapshots private; no provider/product success is inferred from installation alone.
