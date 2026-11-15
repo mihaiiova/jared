@@ -45,6 +45,12 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     if (mode === 'prompt-rejected') { send({ type: 'response', id: cmd.id, command: 'prompt', success: false, error: 'sensitive-provider-text' }); return; }
     send({ type: 'response', id: cmd.id, command: 'prompt', success: true, data: { disposition: 'started' } });
     if (mode === 'wait') return;
+    if (mode === 'activity') {
+      send({ type: 'message_update', message: { role: 'assistant' }, assistantMessageEvent: { type: 'text_delta', delta: 'PRIVATE_MODEL_DELTA' } });
+      send({ type: 'tool_execution_start', toolName: 'read', args: { path: 'PRIVATE_TOOL_ARGUMENT' } });
+      send({ type: 'tool_execution_end', toolName: 'read', result: { content: 'PRIVATE_TOOL_RESULT' } });
+      send({ type: 'tool_execution_start', toolName: 'PRIVATE_UNKNOWN_TOOL' });
+    }
     if (mode === 'accepted-only-exit') { process.exit(0); }
     const packet = JSON.parse(cmd.message);
     const report = { schemaVersion: 1, jobId: packet.jobId, reviewedCommit: packet.reviewedCommit, summary: 'Offline RPC fixture; no provider ran.', findings: [], inspectedPaths: ['README.md'], limitations: ['Synthetic protocol response'], visualVerification: 'not_run' };
@@ -210,6 +216,44 @@ test("PiExecutor offline RPC success requires guard, acceptance, final stop and 
   assert.equal(r.lastStop, "stop");
   assert.match(r.guardHash, /^[a-f0-9]{64}$/);
   assert(!groupAlive(r.group.pid));
+});
+
+test("PiExecutor progress exposes observed protocol metadata, never model/tool payloads", async () => {
+  const f = offlineExecutor("activity");
+  const activities: unknown[] = [];
+  await f.executor.run({
+    ...f.context,
+    progress: (activity) => activities.push(activity),
+  });
+  const text = JSON.stringify(activities);
+  for (const kind of [
+    "process_started",
+    "guard_verified",
+    "prompt_accepted",
+    "model_activity",
+    "tool_started",
+    "tool_finished",
+    "agent_settled",
+    "stop_requested",
+    "stop_confirmed",
+  ])
+    assert(text.includes(kind), kind);
+  assert(!text.includes("PRIVATE_"));
+});
+
+test("progress storage failure cannot bypass owned-process settlement", async () => {
+  const f = offlineExecutor("success");
+  await assert.rejects(
+    f.executor.run({
+      ...f.context,
+      progress: () => {
+        throw new Error("PRIVATE_STORAGE_ERROR");
+      },
+    }),
+    /pi_protocol_or_agent_failure/,
+  );
+  assert.equal(f.receipt().stopConfirmed, true);
+  assert(!groupAlive(f.receipt().group.pid));
 });
 
 test("PiExecutor offline RPC failures are bounded, fail closed and keep safe guard diagnostics", async (t) => {

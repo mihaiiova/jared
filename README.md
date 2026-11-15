@@ -58,6 +58,22 @@ MCP does not automatically pass the caller's repository to Jared. Every registra
 
 `setup_project` explicitly writes `.jared/config.json`, `.jared/.gitignore` and `.jared/runs/`. Reports are private and project-local. Registration is not an audit; successful registration does not prove model execution.
 
+## Progress, logs and audit time budget
+
+Poll MCP `get_job` for the active phase, role, deadline and last observed activity. Use `get_job_logs` with `projectId`, `jobId` and an `after` cursor for bounded, paginated metadata history. From a terminal:
+
+```sh
+jared logs --project product --job <UUID> --follow
+```
+
+To allow a larger whole-job budget, close MCP clients, cancel active jobs and wait for the owned worker to exit, then:
+
+```sh
+jared setup --job-timeout-seconds 600 --no-login --no-register
+```
+
+The default stays 120 seconds; the explicit operator setting accepts 1–3600 seconds. Workspace preparation and both sequential agents share it; confirming termination can take longer. There are no automatic paid retries. Logs omit prompts, model text, credentials and raw tool output. Silence means no new activity was observed, **not proof of a stall**. See [deadlines and observability](docs/job-progress.md) for sampling, retention and recovery limits.
+
 ## Upgrade and troubleshooting
 
 Reinstall the desired Git ref, then restart Jared's MCP clients so old workers can exit. Selected configuration/authentication and retained reports are preserved. The old `state/search-tools` cache is no longer consulted, copied or automatically deleted.

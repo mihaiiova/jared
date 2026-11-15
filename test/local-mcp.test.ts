@@ -82,7 +82,7 @@ test("actual stdio clients share local worker, explicit multi-project routing, u
     startupPin.destroy();
     startupPin = undefined;
     const tools = await a.listTools();
-    assert.equal(tools.tools.length, 10);
+    assert.equal(tools.tools.length, 11);
     assert.equal(
       tools.tools.find((t) => t.name === "setup_project")!.annotations
         ?.readOnlyHint,

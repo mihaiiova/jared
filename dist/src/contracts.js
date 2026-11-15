@@ -36,6 +36,10 @@ export const jobSchema = z.strictObject({
     projectId: id,
     jobId: z.string().uuid(),
 });
+export const jobLogsSchema = jobSchema.extend({
+    after: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+    limit: z.number().int().min(1).max(100).default(100),
+});
 export const contextSchema = z.strictObject({
     projectId: id,
     commit: sha,

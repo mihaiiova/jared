@@ -1,11 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { setupProjectSchema, submitSchema, integrationSchema, jobSchema, contextSchema, ackSchema, ServiceError, } from "./contracts.js";
+import { setupProjectSchema, submitSchema, integrationSchema, jobSchema, jobLogsSchema, contextSchema, ackSchema, ServiceError, } from "./contracts.js";
 export const guide = `Jared performs exact-local-commit source audits only, not code implementation or visual verification.
 1. Get the caller's explicit canonical absolute Git root. Never infer it from the MCP process cwd.
 2. setup_project({projectId:"product",projectPath:"/absolute/git/root",platform:"web",purpose:"Product purpose",approvedDirection:"Existing approved direction",setupProfile:"source-only-v1",designPaths:["README.md"]}). This WRITES .jared/config.json, .jared/.gitignore and .jared/runs, and registers the project. Disclose these writes before calling. Existing conflicts/symlinks are refused. Reuse the same projectId and projectPath to update metadata or recreate a removed .jared directory; partial/conflicting state may require operator repair. Changing the registered root is refused. Keep authoritative design knowledge in product-native files.
 3. submit_job({projectId:"product",baseCommit:"<40 lowercase hex local commit>",kind:"audit",request:"Audit source accessibility",scope:"product",idempotencyKey:"audit-1"}). Unpushed commits work; dirty original files are excluded and preserved. Audits require operator-selected auth (jared setup); no auth is needed for discovery/setup_project.
-4. Poll get_job({projectId:"product",jobId:"<returned UUID>"}); then get_result/get_report with the same route. Reports are at that project's .jared/runs/<jobId>. Audit findings are not execution failure. Visual verification is always not_run.
+4. Poll get_job({projectId:"product",jobId:"<returned UUID>"}) for phase, run/role, deadline, last observed activity and quietForMs. Read get_job_logs({projectId:"product",jobId:"<returned UUID>",after:0,limit:100}) for bounded metadata history; continue with nextCursor while hasMore. truncated means older events were pruned. Counts/activity are observations, not proof of useful work or a stalled model. No prompts, model text, tool arguments/results or raw stderr are logged. The operator can set a finite whole-job budget with jared setup --job-timeout-seconds 600 --no-login --no-register after closing clients and waiting for the worker to exit. Default is 120s, maximum 3600s; workspace preparation and both sequential agents share it, and confirmed cleanup may take additional time. No automatic paid retries. Then get_result/get_report with the same route. Reports are at that project's .jared/runs/<jobId>. Audit findings are not execution failure. Visual verification is always not_run.
 5. cancel_job uses the same project/job route. acknowledge_handoff additionally requires disposition:"acknowledged" or "abandoned"; only an explicit acknowledgement removes a clean stopped worktree, never reports or dirty work.
 read_design_context requires projectId, exact commit and a registered design path. review_integration accepts projectId, originalJobId, integratedCommit, request and idempotencyKey; it is another read-only source review, not integration approval.
 One installation supports multiple projects and simultaneous clients. Local clients have same-user operator authority, NOT multi-tenant isolation. Jobs survive client disconnect; interrupted worker jobs are marked crashed on restart, not replayed. Private source snapshots/evidence persist until explicit safe cleanup. Linux and experimental macOS; native macOS verification pending. Windows unsupported. On macOS, a hard worker crash may leave live orphan groups stop_unconfirmed; retained evidence is not cleaned up and stale PIDs are not signalled by a new owner. No setup commands, product source edits, browser, network Git, pushes, merges or deployment. Do not send secrets in requests.`;
@@ -16,6 +16,7 @@ export function createMcpServer(service) {
         setup_project: setupProjectSchema,
         submit_job: submitSchema,
         get_job: jobSchema,
+        get_job_logs: jobLogsSchema,
         get_result: jobSchema,
         get_report: jobSchema,
         cancel_job: jobSchema,
@@ -27,6 +28,7 @@ export function createMcpServer(service) {
         const readOnly = [
             "get_jared_guide",
             "get_job",
+            "get_job_logs",
             "get_result",
             "get_report",
         ].includes(name);
