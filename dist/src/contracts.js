@@ -4,7 +4,8 @@ export const sha = z.string().regex(/^[0-9a-f]{40}$/);
 export const sourcePath = z
     .string()
     .max(240)
-    .regex(/^[a-zA-Z0-9_][a-zA-Z0-9_./-]*$/)
+    // TanStack route parameters use literal '$'; Git receives argv, never shell text.
+    .regex(/^[a-zA-Z0-9_][a-zA-Z0-9_./$-]*$/)
     .refine((p) => p
     .split("/")
     .every((s) => s !== "." && s !== ".." && s !== "" && s !== ".git"), "unsafe source path");
