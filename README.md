@@ -93,7 +93,7 @@ npm test
 npm pack --dry-run
 ```
 
-For a local tarball install, run `npm run build:local`, then `npm pack`, then `npm install -g ./jared-local-cli-0.4.0.tgz`.
+For a local tarball install, run `npm run build:local`, then `npm pack`, then `npm install -g ./jared-local-cli-0.4.1.tgz`.
 
 Commit generated `dist/src/` with TypeScript changes. `npm run vendor:verify` checks all packaged binaries/licenses without downloading or executing foreign-platform tools; `npm run vendor:refresh` is an explicit maintainer-only refresh of pinned upstream archives. No install or setup lifecycle invokes it.
 
